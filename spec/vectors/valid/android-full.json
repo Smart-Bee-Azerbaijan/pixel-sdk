@@ -1,0 +1,73 @@
+{
+  "description": "Android: Flutter örtüyü ilə, avtomatik və kod eventləri",
+  "batch": {
+    "v": 1,
+    "key": "k7m2x9qa4t",
+    "sent_at": "2026-11-25T07:00:05.120Z",
+    "sdk": {
+      "name": "android",
+      "version": "1.0.0",
+      "wrapper": "flutter",
+      "wrapper_version": "1.0.0"
+    },
+    "ctx": {
+      "platform": "android",
+      "locale": "az-AZ",
+      "tz": "Asia/Baku",
+      "screen": {
+        "w": 1080,
+        "h": 2400,
+        "density": 2.75
+      },
+      "consent": {
+        "analytics": true,
+        "ads": false
+      },
+      "app": {
+        "id": "az.shop.app",
+        "version": "1.2.3",
+        "build": "45"
+      },
+      "os": {
+        "name": "Android",
+        "version": "14"
+      },
+      "device": {
+        "manufacturer": "Google",
+        "model": "Pixel 8",
+        "type": "phone"
+      }
+    },
+    "events": [
+      {
+        "id": "3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2c",
+        "type": "track",
+        "name": "AppOpen",
+        "ts": "2026-11-25T06:59:00.000Z",
+        "anon_id": "i-9f1c",
+        "session_id": "s-2",
+        "seq": 0,
+        "origin": "auto"
+      },
+      {
+        "id": "3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2d",
+        "type": "track",
+        "name": "AddToCart",
+        "ts": "2026-11-25T06:59:30.000Z",
+        "anon_id": "i-9f1c",
+        "session_id": "s-2",
+        "seq": 1,
+        "props": {
+          "content_ids": [
+            "p1"
+          ],
+          "value": 125,
+          "currency": "AZN"
+        },
+        "screen": {
+          "name": "ProductDetail"
+        }
+      }
+    ]
+  }
+}

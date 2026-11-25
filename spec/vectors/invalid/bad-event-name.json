@@ -1,0 +1,24 @@
+{
+  "description": "Event adında boşluq və icazəsiz simvol var",
+  "batch": {
+    "v": 1,
+    "key": "k7m2x9qa4t",
+    "sent_at": "2026-11-25T07:00:05.120Z",
+    "sdk": {
+      "name": "web",
+      "version": "1.0.0"
+    },
+    "ctx": {
+      "platform": "web"
+    },
+    "events": [
+      {
+        "id": "e1",
+        "type": "track",
+        "name": "my event!",
+        "ts": "2026-11-25T07:00:00Z",
+        "anon_id": "a1"
+      }
+    ]
+  }
+}

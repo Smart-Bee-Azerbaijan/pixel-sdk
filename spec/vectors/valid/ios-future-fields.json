@@ -1,0 +1,47 @@
+{
+  "description": "iOS: naməlum sahələr və naməlum event tipi rədd olunmamalıdır (irəliyə uyğunluq)",
+  "batch": {
+    "v": 1,
+    "key": "k7m2x9qa4t",
+    "sent_at": "2026-11-25T07:00:05.120Z",
+    "future_field": {
+      "x": 1
+    },
+    "sdk": {
+      "name": "ios",
+      "version": "1.4.0"
+    },
+    "ctx": {
+      "platform": "ios",
+      "app": {
+        "id": "az.shop.app"
+      },
+      "ids": {
+        "idfv": "6D92078A-8246-4BA4-AE5B-76104861E7DC",
+        "att": "denied"
+      },
+      "new_ctx": true
+    },
+    "events": [
+      {
+        "id": "x1",
+        "type": "alias",
+        "ts": "2026-11-25T07:00:00Z",
+        "anon_id": "i-1",
+        "extra": [
+          1,
+          2
+        ]
+      },
+      {
+        "id": "x2",
+        "type": "track",
+        "name": "Rule_Checkout_Click",
+        "ts": "2026-11-25T07:00:00Z",
+        "anon_id": "i-1",
+        "origin": "rule",
+        "rule_id": "r-17"
+      }
+    ]
+  }
+}

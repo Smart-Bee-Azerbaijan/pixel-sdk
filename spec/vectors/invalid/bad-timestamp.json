@@ -1,0 +1,24 @@
+{
+  "description": "Vaxt UTC ISO formatında deyil",
+  "batch": {
+    "v": 1,
+    "key": "k7m2x9qa4t",
+    "sent_at": "2026-11-25T07:00:05.120Z",
+    "sdk": {
+      "name": "web",
+      "version": "1.0.0"
+    },
+    "ctx": {
+      "platform": "web"
+    },
+    "events": [
+      {
+        "id": "e1",
+        "type": "track",
+        "name": "PageView",
+        "ts": "25.11.2026 11:00",
+        "anon_id": "a1"
+      }
+    ]
+  }
+}

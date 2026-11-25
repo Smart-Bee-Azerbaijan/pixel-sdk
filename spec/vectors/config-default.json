@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "key": "k7m2x9qa4t",
+  "rev": 12,
+  "enabled": true,
+  "sample": 1,
+  "ttl_s": 3600,
+  "session_timeout_s": 1800,
+  "consent_default": {
+    "analytics": true,
+    "ads": true
+  },
+  "auto": {
+    "page_view": true,
+    "spa": true,
+    "forms": true,
+    "outbound": true,
+    "contact_links": true,
+    "scroll": false,
+    "lifecycle": true,
+    "screens": true,
+    "deeplinks": true
+  },
+  "blocked_events": [],
+  "strip_params": [],
+  "flush": {
+    "interval_s": 30,
+    "max_batch": 50,
+    "max_queue": 1000
+  },
+  "rules": []
+}

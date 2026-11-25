@@ -1,0 +1,10 @@
+{
+  "name": "smartbee-pixel-sdk",
+  "private": true,
+  "workspaces": [
+    "spec"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

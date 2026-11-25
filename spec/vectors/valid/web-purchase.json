@@ -1,0 +1,76 @@
+{
+  "description": "Veb: tam kontekst, identify və Purchase",
+  "batch": {
+    "v": 1,
+    "key": "k7m2x9qa4t",
+    "sent_at": "2026-11-25T07:00:05.120Z",
+    "sdk": {
+      "name": "web",
+      "version": "1.0.0"
+    },
+    "ctx": {
+      "platform": "web",
+      "locale": "az-AZ",
+      "tz": "Asia/Baku",
+      "ua": "Mozilla/5.0",
+      "screen": {
+        "w": 1920,
+        "h": 1080,
+        "density": 1
+      },
+      "consent": {
+        "analytics": true,
+        "ads": true
+      },
+      "campaign": {
+        "utm_source": "facebook",
+        "utm_medium": "cpc",
+        "fbclid": "IwAR0abc"
+      },
+      "ids": {
+        "fbp": "fb.1.1700000000000.1234567890"
+      }
+    },
+    "events": [
+      {
+        "id": "e-0001",
+        "type": "identify",
+        "ts": "2026-11-25T07:00:01Z",
+        "anon_id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "user_id": "user-42",
+        "session_id": "s-1",
+        "seq": 7,
+        "traits": {
+          "email_sha256": "5112b461d32844f6fc0ea92e45d08556471d1e9425bb23cffdb2f27898375f5b"
+        }
+      },
+      {
+        "id": "order:A-1001",
+        "type": "track",
+        "name": "Purchase",
+        "ts": "2026-11-25T07:00:02.5Z",
+        "anon_id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "user_id": "user-42",
+        "session_id": "s-1",
+        "seq": 8,
+        "props": {
+          "value": 250,
+          "currency": "AZN",
+          "order_id": "A-1001",
+          "contents": [
+            {
+              "id": "p1",
+              "quantity": 2,
+              "item_price": 125
+            }
+          ]
+        },
+        "page": {
+          "url": "https://shop.az/thank-you",
+          "referrer": "https://shop.az/checkout",
+          "title": "Təşəkkürlər"
+        }
+      }
+    ]
+  }
+}

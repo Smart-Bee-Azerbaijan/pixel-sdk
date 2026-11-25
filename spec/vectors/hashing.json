@@ -1,0 +1,27 @@
+{
+  "description": "identify üçün normallaşdırma və SHA-256. Hər SDK bu girişlərdən eyni normalized və sha256 dəyərlərini almalıdır.",
+  "email": [
+    {
+      "input": "  A@B.az ",
+      "normalized": "a@b.az",
+      "sha256": "5112b461d32844f6fc0ea92e45d08556471d1e9425bb23cffdb2f27898375f5b"
+    },
+    {
+      "input": "Farid.Test@Example.COM",
+      "normalized": "farid.test@example.com",
+      "sha256": "a0dc5993124a6eb19ba778aab8fa6852310a325d4b7d0b33bd111546fcf52b9f"
+    }
+  ],
+  "phone": [
+    {
+      "input": "+994 (50) 123-45-67",
+      "normalized": "994501234567",
+      "sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "input": "994501234567",
+      "normalized": "994501234567",
+      "sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    }
+  ]
+}

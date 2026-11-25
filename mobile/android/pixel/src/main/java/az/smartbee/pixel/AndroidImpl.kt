@@ -1,0 +1,234 @@
+package az.smartbee.pixel
+
+import android.content.ContentValues
+import android.content.Context
+import android.content.res.Configuration
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+import android.os.Build
+import android.util.Log
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Locale
+import java.util.TimeZone
+import java.util.UUID
+import java.util.zip.GZIPOutputStream
+
+/**
+ * SDK-nın yeganə bazası: event növbəsi və açar-dəyər yaddaşı.
+ *
+ * Fayl tətbiqin şəxsi `noBackupFilesDir` qovluğundadır: Android-in avtomatik ehtiyat nüsxəsinə düşmür,
+ * yəni anonim ID başqa cihaza bərpa olunub iki cihazda eyni olmur.
+ */
+internal class PixelDatabase(context: Context) :
+    SQLiteOpenHelper(context, File(context.noBackupFilesDir, "smartbee_pixel.db").absolutePath, null, 1) {
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, ctx TEXT NOT NULL, payload TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY NOT NULL, v TEXT NOT NULL)")
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        onCreate(db)
+    }
+}
+
+/** Açar-dəyər yaddaşı. Dəyərlər yaddaşda keşlənir; yazı dərhal diskə gedir. */
+internal class SqliteStore(private val helper: PixelDatabase) : Store {
+    private val cache = HashMap<String, String>()
+
+    init {
+        helper.readableDatabase.query("kv", arrayOf("k", "v"), null, null, null, null, null).use { c ->
+            while (c.moveToNext()) cache[c.getString(0)] = c.getString(1)
+        }
+    }
+
+    override fun get(key: String): String? = cache[key]
+
+    override fun put(key: String, value: String) {
+        if (cache[key] == value) return
+        cache[key] = value
+        val values = ContentValues()
+        values.put("k", key)
+        values.put("v", value)
+        helper.writableDatabase.insertWithOnConflict("kv", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    override fun remove(key: String) {
+        if (cache.remove(key) == null) return
+        helper.writableDatabase.delete("kv", "k = ?", arrayOf(key))
+    }
+}
+
+/** SQLite üzərində event növbəsi. */
+internal class SqliteQueue(private val helper: PixelDatabase) : EventQueue {
+    private val writableDatabase: SQLiteDatabase get() = helper.writableDatabase
+    private val readableDatabase: SQLiteDatabase get() = helper.readableDatabase
+
+    override fun add(ctx: String, payload: String) {
+        val values = ContentValues()
+        values.put("ctx", ctx)
+        values.put("payload", payload)
+        writableDatabase.insert("events", null, values)
+    }
+
+    override fun peek(limit: Int): List<QueuedEvent> {
+        val out = ArrayList<QueuedEvent>()
+        readableDatabase.query("events", arrayOf("id", "ctx", "payload"), null, null, null, null, "id ASC", limit.toString()).use { c ->
+            while (c.moveToNext()) out.add(QueuedEvent(c.getLong(0), c.getString(1), c.getString(2)))
+        }
+        return out
+    }
+
+    override fun remove(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        // ID-lər yalnız bazanın öz verdiyi tam ədədlərdir.
+        writableDatabase.delete("events", "id IN (" + ids.joinToString(",") + ")", null)
+    }
+
+    override fun size(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM events", null).use { c ->
+        if (c.moveToFirst()) c.getInt(0) else 0
+    }
+
+    override fun trim(max: Int) {
+        val extra = size() - max
+        if (extra > 0) {
+            writableDatabase.execSQL("DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id ASC LIMIT $extra)")
+        }
+    }
+
+    override fun clear() {
+        writableDatabase.delete("events", null, null)
+    }
+}
+
+/**
+ * HttpURLConnection üzərində nəqliyyat. Yalnız HTTPS; sazlama rejimində lokal ünvanlara HTTP icazəlidir.
+ */
+internal class HttpTransport(private val debug: Boolean) : Transport {
+    companion object {
+        const val MAX_CONFIG_BYTES = 256 * 1024
+
+        /** Axını ən çox `limit` bayta qədər oxuyur; limit aşılarsa null (böyük cavab yaddaşa yığılmır). */
+        fun readLimited(input: InputStream, limit: Int): String? {
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                if (out.size() + n > limit) return null
+                out.write(buffer, 0, n)
+            }
+            return String(out.toByteArray(), Charsets.UTF_8)
+        }
+
+        /** Yalnız HTTPS; sazlama rejimində lokal ünvanlara HTTP icazəlidir. */
+        fun allowed(url: URL, debug: Boolean): Boolean {
+            val local = url.host == "localhost" || url.host == "127.0.0.1" || url.host == "10.0.2.2"
+            return url.protocol == "https" || (debug && local && url.protocol == "http")
+        }
+    }
+
+    private fun open(address: String): HttpURLConnection? {
+        val url = URL(address)
+        if (!allowed(url, debug)) return null
+        val conn = url.openConnection() as HttpURLConnection
+        conn.connectTimeout = 10_000
+        conn.readTimeout = 15_000
+        conn.instanceFollowRedirects = false
+        conn.useCaches = false
+        conn.setRequestProperty("User-Agent", "SmartBeePixel-Android/$SDK_VERSION")
+        return conn
+    }
+
+    override fun post(url: String, json: String): HttpResult {
+        val conn = try {
+            open(url)
+        } catch (e: Exception) {
+            null
+        } ?: return HttpResult(400)
+        return try {
+            val raw = ByteArrayOutputStream()
+            GZIPOutputStream(raw).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+            val bytes = raw.toByteArray()
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setFixedLengthStreamingMode(bytes.size)
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Content-Encoding", "gzip")
+            conn.outputStream.use { it.write(bytes) }
+            HttpResult(conn.responseCode, retryAfterSec = conn.getHeaderField("Retry-After")?.trim()?.toLongOrNull())
+        } catch (e: Exception) {
+            HttpResult(-1)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    override fun get(url: String, etag: String?): HttpResult {
+        val conn = try {
+            open(url)
+        } catch (e: Exception) {
+            null
+        } ?: return HttpResult(400)
+        return try {
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Accept", "application/json")
+            if (etag != null) conn.setRequestProperty("If-None-Match", etag)
+            val status = conn.responseCode
+            val body = if (status == 200) conn.inputStream.use { readLimited(it, MAX_CONFIG_BYTES) } else null
+            HttpResult(status, body, conn.getHeaderField("ETag"))
+        } catch (e: Exception) {
+            HttpResult(-1)
+        } finally {
+            conn.disconnect()
+        }
+    }
+}
+
+internal class AndroidEnv(private val context: Context) : Env {
+    private val static: String by lazy { buildStatic().toString() }
+
+    override fun now(): Long = System.currentTimeMillis()
+    override fun uuid(): String = UUID.randomUUID().toString()
+    override fun log(message: String) {
+        Log.d("SmartBee", message)
+    }
+
+    override fun deviceContext(): JSONObject {
+        val ctx = JSONObject(static)
+        ctx.put("locale", Locale.getDefault().toLanguageTag())
+        ctx.put("tz", TimeZone.getDefault().id)
+        return ctx
+    }
+
+    private fun buildStatic(): JSONObject {
+        val ctx = JSONObject()
+        val app = JSONObject().put("id", context.packageName)
+        try {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            info.versionName?.let { app.put("version", it) }
+            @Suppress("DEPRECATION")
+            val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+            app.put("build", code.toString())
+        } catch (e: Exception) {
+            // Versiya oxunmasa da paket adı göndərilir.
+        }
+        ctx.put("app", app)
+        ctx.put("os", JSONObject().put("name", "Android").put("version", Build.VERSION.RELEASE ?: ""))
+        val metrics = context.resources.displayMetrics
+        val layout = context.resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK
+        ctx.put(
+            "device",
+            JSONObject()
+                .put("manufacturer", Build.MANUFACTURER ?: "")
+                .put("model", Build.MODEL ?: "")
+                .put("type", if (layout >= Configuration.SCREENLAYOUT_SIZE_LARGE) "tablet" else "phone"),
+        )
+        ctx.put("screen", JSONObject().put("w", metrics.widthPixels).put("h", metrics.heightPixels).put("density", metrics.density.toDouble()))
+        return ctx
+    }
+}

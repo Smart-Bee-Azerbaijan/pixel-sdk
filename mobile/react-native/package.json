@@ -1,0 +1,41 @@
+{
+  "name": "@smartbee/pixel",
+  "version": "1.0.0",
+  "description": "SmartBee Pixel: React Native SDK",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "index.d.ts",
+    "android/build.gradle",
+    "android/src",
+    "ios",
+    "smartbee-pixel.podspec",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "prepack": "node ../sync-native.mjs --check"
+  },
+  "peerDependencies": {
+    "react-native": ">=0.72"
+  },
+  "license": "MIT",
+  "homepage": "https://c.cdnsb.net/docs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Smart-Bee-Azerbaijan/pixel-sdk.git",
+    "directory": "mobile/react-native"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

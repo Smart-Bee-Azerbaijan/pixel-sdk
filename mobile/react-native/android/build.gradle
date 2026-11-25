@@ -1,0 +1,36 @@
+// React Native tətbiqinin Gradle layihəsinə avtomatik qoşulur (autolinking).
+// Plagin versiyaları tətbiqin öz konfiqurasiyasından gəlir.
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+}
+
+// Tətbiqin öz SDK versiyaları varsa onlar götürülür (React Native şablonunun rootProject.ext dəyərləri).
+def safeExtGet = { String name, fallback ->
+    rootProject.ext.has(name) ? rootProject.ext.get(name) : fallback
+}
+
+android {
+    namespace 'az.smartbee.pixel.reactnative'
+    compileSdk safeExtGet('compileSdkVersion', 35)
+
+    defaultConfig {
+        minSdk safeExtGet('minSdkVersion', 24)
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    // Tətbiqdə versiyanı React Native Gradle plagini təyin edir ('+' onun tərəfindən əvəzlənir).
+    // smartbeeReactNativeVersion yalnız bu repo-dakı yığma yoxlaması üçündür.
+    def reactNativeVersion = project.findProperty('smartbeeReactNativeVersion') ?: '+'
+    implementation "com.facebook.react:react-android:${reactNativeVersion}"
+}

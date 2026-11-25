@@ -1,0 +1,19 @@
+{
+  "name": "@smartbee/pixel-spec",
+  "version": "1.0.0-draft.1",
+  "private": true,
+  "description": "SmartBee Pixel: protokol, sxemlər və test vektorları",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1"
+  },
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./schema/*": "./schema/*",
+    "./vectors/*": "./vectors/*"
+  }
+}

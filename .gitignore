@@ -1,0 +1,14 @@
+node_modules/
+build/
+.build/
+.swiftpm/
+.gradle/
+.kotlin/
+local.properties
+*.log
+.DS_Store
+.idea/
+.vscode/
+.dart_tool/
+pubspec.lock
+package-lock.json

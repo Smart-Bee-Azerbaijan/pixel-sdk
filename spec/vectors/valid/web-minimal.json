@@ -1,0 +1,25 @@
+{
+  "description": "Veb: ən kiçik yararlı toplu, tək PageView",
+  "batch": {
+    "v": 1,
+    "key": "k7m2x9qa4t",
+    "sent_at": "2026-11-25T07:00:05.120Z",
+    "sdk": {
+      "name": "web",
+      "version": "1.0.0"
+    },
+    "ctx": {
+      "platform": "web"
+    },
+    "events": [
+      {
+        "id": "3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b",
+        "type": "track",
+        "name": "PageView",
+        "ts": "2026-11-25T07:00:00.000Z",
+        "anon_id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "origin": "auto"
+      }
+    ]
+  }
+}

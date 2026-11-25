@@ -1,0 +1,245 @@
+package az.smartbee.pixel
+
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+
+internal const val SDK_VERSION = "1.0.0"
+internal const val DEFAULT_ENDPOINT = "https://c.cdnsb.net"
+
+// ---- Asılılıqlar (Android tətbiqi AndroidImpl.kt-dədir; testlərdə saxta tətbiqlər işlədilir) ----
+
+/** Kiçik açar-dəyər yaddaşı (identifikatorlar, razılıq, konfiq). */
+internal interface Store {
+    fun get(key: String): String?
+    fun put(key: String, value: String)
+    fun remove(key: String)
+}
+
+internal class QueuedEvent(val id: Long, val ctx: String, val payload: String)
+
+/** Diskdə saxlanan event növbəsi. Sıra əlavə olunma sırasıdır. */
+internal interface EventQueue {
+    fun add(ctx: String, payload: String)
+    fun peek(limit: Int): List<QueuedEvent>
+    fun remove(ids: List<Long>)
+    fun size(): Int
+    /** Ən köhnə eventləri ataraq növbəni `max` ölçüsünə endirir. */
+    fun trim(max: Int)
+    fun clear()
+}
+
+internal class HttpResult(val status: Int, val body: String? = null, val etag: String? = null, val retryAfterSec: Long? = null) {
+    val ok: Boolean get() = status in 200..299
+    /** Şəbəkə xətası (status -1), 408, 429 və 5xx: toplu saxlanır və təkrar göndərilir. */
+    val retryable: Boolean get() = status == -1 || status == 408 || status == 429 || status >= 500
+}
+
+internal interface Transport {
+    fun post(url: String, json: String): HttpResult
+    fun get(url: String, etag: String?): HttpResult
+}
+
+internal interface Env {
+    fun now(): Long
+    fun uuid(): String
+    /** Cihaz və tətbiq konteksti: locale, tz, screen, app, os, device (PROTOCOL.md 5.4). */
+    fun deviceContext(): JSONObject
+    fun log(message: String)
+}
+
+// ---- Uzaqdan konfiq (PROTOCOL.md 8) -----------------------------------------------------------
+
+internal class RemoteConfig(
+    val enabled: Boolean = true,
+    val sample: Double = 1.0,
+    val ttlMs: Long = 3_600_000,
+    val sessionTimeoutMs: Long = 1_800_000,
+    val consentAnalytics: Boolean = true,
+    val consentAds: Boolean = true,
+    val auto: Map<String, Boolean> = emptyMap(),
+    val blockedEvents: Set<String> = emptySet(),
+    val stripParams: Set<String> = emptySet(),
+    val flushIntervalMs: Long = 30_000,
+    val maxBatch: Int = 50,
+    val maxQueue: Int = 1000,
+) {
+    /** Konfiqdə açıq şəkildə `false` verilməyibsə avtomatik event açıqdır. */
+    fun auto(name: String): Boolean = auto[name] != false
+
+    companion object {
+        val DEFAULT = RemoteConfig()
+        val DISABLED = RemoteConfig(enabled = false, ttlMs = 86_400_000)
+
+        /** Tanınmayan sahələr ötürülür; yararsız JSON üçün null. */
+        fun parse(json: String?): RemoteConfig? {
+            if (json.isNullOrEmpty()) return null
+            return try {
+                val o = JSONObject(json)
+                val consent = o.optJSONObject("consent_default")
+                val flush = o.optJSONObject("flush")
+                val autoObj = o.optJSONObject("auto")
+                val auto = HashMap<String, Boolean>()
+                if (autoObj != null) for (k in autoObj.keys()) auto[k] = autoObj.optBoolean(k, true)
+                RemoteConfig(
+                    enabled = o.optBoolean("enabled", true),
+                    sample = o.optDouble("sample", 1.0).let { if (it.isNaN()) 1.0 else it.coerceIn(0.0, 1.0) },
+                    ttlMs = o.optLong("ttl_s", 3600).coerceIn(60, 7 * 86_400) * 1000,
+                    sessionTimeoutMs = o.optLong("session_timeout_s", 1800).coerceIn(60, 86_400) * 1000,
+                    consentAnalytics = consent?.optBoolean("analytics", true) ?: true,
+                    consentAds = consent?.optBoolean("ads", true) ?: true,
+                    auto = auto,
+                    blockedEvents = strings(o.optJSONArray("blocked_events")),
+                    stripParams = strings(o.optJSONArray("strip_params")).map { it.lowercase(Locale.ROOT) }.toSet(),
+                    flushIntervalMs = (flush?.optLong("interval_s", 30) ?: 30).coerceIn(1, 3600) * 1000,
+                    maxBatch = (flush?.optInt("max_batch", 50) ?: 50).coerceIn(1, 100),
+                    maxQueue = (flush?.optInt("max_queue", 1000) ?: 1000).coerceIn(1, 100_000),
+                )
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        private fun strings(array: JSONArray?): Set<String> {
+            val out = HashSet<String>()
+            if (array != null) for (i in 0 until array.length()) (array.opt(i) as? String)?.let { out.add(it) }
+            return out
+        }
+    }
+}
+
+// ---- Köməkçilər -------------------------------------------------------------------------------
+
+internal object Util {
+    val NAME_RE = Regex("^[A-Za-z][A-Za-z0-9_]{0,63}$")
+    val ID_RE = Regex("^[A-Za-z0-9_.:-]{1,64}$")
+    val KEY_RE = Regex("^[a-z0-9]{8,16}$")
+
+    private val FORBIDDEN = setOf("email", "phone", "password", "pass", "token", "card", "card_number", "cvv", "pin", "fin")
+    private val STRIP = setOf(
+        "token", "password", "pass", "email", "phone", "access_token", "id_token", "refresh_token", "code",
+        "secret", "client_secret", "auth", "api_key", "apikey", "otp", "reset_token",
+    )
+    private val ORIGIN_RE = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*")
+    private val USERINFO_RE = Regex("//[^/@]*@")
+    private val EMAIL_RE = Regex("[^/?&=#\\s]+(?:@|%40)[^/?&=#\\s]+\\.[A-Za-z]{2,}")
+    private val CAMPAIGN = listOf("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content")
+    val CLICK_IDS = listOf("fbclid", "gclid", "gbraid", "wbraid", "ttclid", "msclkid")
+
+    fun iso(millis: Long): String {
+        val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        format.timeZone = TimeZone.getTimeZone("UTC")
+        return format.format(Date(millis))
+    }
+
+    fun sha256(text: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+        val sb = StringBuilder(64)
+        for (b in digest) {
+            val v = b.toInt() and 0xff
+            if (v < 16) sb.append('0')
+            sb.append(Integer.toHexString(v))
+        }
+        return sb.toString()
+    }
+
+    /** PROTOCOL.md 6.1: boşluqlar silinir, kiçik hərfə çevrilir. */
+    fun normalizeEmail(email: String): String = email.trim().lowercase(Locale.ROOT)
+
+    /** PROTOCOL.md 6.1: yalnız rəqəmlər. */
+    fun normalizePhone(phone: String): String = phone.filter { it in '0'..'9' }
+
+    /** anon_id-dən [0,1) aralığında sabit ədəd (nümunələmə üçün). Veb tracker ilə eyni alqoritm: FNV-1a 32 bit. */
+    fun fraction(text: String): Double {
+        var h = 0x811c9dc5L
+        for (ch in text) {
+            h = h xor (ch.code.toLong() and 0xffff)
+            h = (h * 0x01000193L) and 0xffffffffL
+        }
+        return h.toDouble() / 4294967296.0
+    }
+
+    /**
+     * İstifadəçi məlumatını JSON dəyərinə çevirir. Qadağan olunmuş açarlar, dərinliyi aşan və
+     * JSON-a çevrilməyən dəyərlər atılır. Atılan dəyər üçün [DROP] qaytarılır.
+     */
+    fun clean(value: Any?, depth: Int, log: (String) -> Unit = {}): Any? = when (value) {
+        null, JSONObject.NULL -> JSONObject.NULL
+        is String, is Boolean -> value
+        is Int, is Long, is Short, is Byte -> (value as Number).toLong()
+        is Float -> if (value.isNaN() || value.isInfinite()) DROP else value.toDouble()
+        is Double -> if (value.isNaN() || value.isInfinite()) DROP else value
+        is Number -> value.toDouble().let { if (it.isNaN() || it.isInfinite()) DROP else it }
+        is Date -> iso(value.time)
+        is Map<*, *> -> if (depth <= 0) DROP else JSONObject().also { out ->
+            for ((k, v) in value) {
+                val key = k as? String ?: continue
+                if (FORBIDDEN.contains(key.lowercase(Locale.ROOT))) { log("dropped forbidden key: $key"); continue }
+                val cleaned = clean(v, depth - 1, log)
+                if (cleaned !== DROP) out.put(key, cleaned)
+            }
+        }
+        is Iterable<*> -> if (depth <= 0) DROP else JSONArray().also { out ->
+            for (item in value) clean(item, depth - 1, log).let { if (it !== DROP) out.put(it) }
+        }
+        is Array<*> -> clean(value.asList(), depth, log)
+        is JSONObject -> clean(value.keys().asSequence().associateWith { value.opt(it) }, depth, log)
+        is JSONArray -> clean((0 until value.length()).map { value.opt(it) }, depth, log)
+        else -> DROP
+    }
+
+    val DROP = Any()
+
+    /** Map-i təmiz JSONObject-ə çevirir; boşdursa null. */
+    fun cleanObject(map: Map<String, Any?>?, log: (String) -> Unit = {}): JSONObject? {
+        if (map == null) return null
+        val out = clean(map, 4, log) as? JSONObject ?: return null
+        return if (out.length() == 0) null else out
+    }
+
+    private fun splitQuery(query: String): List<Pair<String, String>> =
+        query.split('&').filter { it.isNotEmpty() }.map {
+            val i = it.indexOf('=')
+            if (i < 0) decode(it) to "" else decode(it.substring(0, i)) to decode(it.substring(i + 1))
+        }
+
+    private fun decode(text: String): String = try {
+        java.net.URLDecoder.decode(text, "UTF-8")
+    } catch (e: Exception) {
+        text
+    }
+
+    /**
+     * Keçiddən həssas query parametrlərini, fraqmenti, istifadəçi adı / parol hissəsini silir və
+     * host-dan sonrakı hissədə e-poçta bənzər mətni gizlədir (veb tracker ilə eyni qayda).
+     */
+    fun cleanUrl(url: String, extraStrip: Set<String> = emptySet()): String {
+        var base = url.substringBefore('#')
+        val q = base.indexOf('?')
+        if (q >= 0) {
+            val kept = base.substring(q + 1).split('&').filter { part ->
+                val name = decode(part.substringBefore('=')).lowercase(Locale.ROOT)
+                part.isNotEmpty() && !STRIP.contains(name) && !extraStrip.contains(name)
+            }
+            base = base.substring(0, q) + if (kept.isEmpty()) "" else "?" + kept.joinToString("&")
+        }
+        val origin = ORIGIN_RE.find(base)?.value.orEmpty()
+        val head = origin.replace(USERINFO_RE, "//")
+        return (head + base.substring(origin.length).replace(EMAIL_RE, "[redacted]")).take(2048)
+    }
+
+    /** Keçiddəki UTM və klik ID parametrləri (PROTOCOL.md 5.4 `campaign`). */
+    fun campaignOf(url: String): JSONObject? {
+        val q = url.substringBefore('#').substringAfter('?', "")
+        if (q.isEmpty()) return null
+        val out = JSONObject()
+        for ((name, value) in splitQuery(q)) {
+            if (value.isNotEmpty() && (CAMPAIGN.contains(name) || CLICK_IDS.contains(name))) out.put(name, value.take(512))
+        }
+        return if (out.length() == 0) null else out
+    }
+}
