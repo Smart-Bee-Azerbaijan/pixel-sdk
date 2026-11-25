@@ -59,6 +59,14 @@ tasks.withType<Test>().configureEach {
 // Maven paketi: az.smartbee:pixel. JitPack və Maven Central eyni nəşrdən istifadə edir.
 afterEvaluate {
     publishing {
+        // Öz Maven repo-muz (https://c.cdnsb.net/maven): fayllar backend-in verdiyi qovluğa yazılır.
+        //   ./gradlew :pixel:publishReleasePublicationToCdnRepository -PsmartbeeMavenDir=<qovluq>
+        repositories {
+            maven {
+                name = "cdn"
+                url = uri(findProperty("smartbeeMavenDir") ?: layout.buildDirectory.dir("maven").get().asFile)
+            }
+        }
         publications {
             create<MavenPublication>("release") {
                 from(components["release"])

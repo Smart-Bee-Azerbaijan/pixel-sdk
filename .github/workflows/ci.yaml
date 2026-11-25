@@ -86,8 +86,9 @@ jobs:
       - name: pub.dev package validation
         working-directory: mobile/flutter
         run: |
-          git status --short
-          git diff --stat
+          # Əvvəlki addımlar işçi qovluğu dəyişibsə göstər və geri qaytar: yoxlama təmiz vəziyyətdə aparılır.
+          git diff
+          git checkout -- .
           flutter pub publish --dry-run
       - name: Build an Android app that uses the plugin
         run: |
