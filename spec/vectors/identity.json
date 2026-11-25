@@ -1,0 +1,410 @@
+{
+  "description": "identify-ın istifadəçi ID-si: e-poçta və ya telefon nömrəsinə bənzəyən ID normallaşdırılıb SHA-256 ilə əvəz olunur (PROTOCOL.md 6.1). expected: göndərilən user_id, ID rədd olunursa null.",
+  "cases": [
+    {
+      "name": "plain id",
+      "input": "user-42",
+      "expected": "user-42"
+    },
+    {
+      "name": "numeric short id",
+      "input": "12345",
+      "expected": "12345"
+    },
+    {
+      "name": "UUID id",
+      "input": "3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b",
+      "expected": "3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b"
+    },
+    {
+      "name": "id with surrounding spaces is kept as given",
+      "input": "  user-42 ",
+      "expected": "  user-42 "
+    },
+    {
+      "name": "single space",
+      "input": " ",
+      "expected": " "
+    },
+    {
+      "name": "empty string is rejected",
+      "input": "",
+      "expected": null
+    },
+    {
+      "name": "e-mail",
+      "input": "user@example.com",
+      "expected": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+    },
+    {
+      "name": "e-mail upper case",
+      "input": "User.Test@Example.COM",
+      "expected": "f3f97d08c61188f515a70bfa1f11ed320fd719baa089fc6669d820ca9fa0aac3"
+    },
+    {
+      "name": "e-mail with surrounding whitespace",
+      "input": "  user@example.com\t\n",
+      "expected": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+    },
+    {
+      "name": "e-mail with no-break space and BOM around",
+      "input": "\u00a0user@example.com\ufeff",
+      "expected": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+    },
+    {
+      "name": "e-mail with U+0085 (not whitespace in JS) is part of the address",
+      "input": "\u0085user@example.com",
+      "expected": "027d44f6224cffa803984b3ea5ffd3485abe781edd6225b9cbdfec2568a1ce9f"
+    },
+    {
+      "name": "e-mail with U+2003 and U+3000 around",
+      "input": "\u2003user@example.com\u3000",
+      "expected": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+    },
+    {
+      "name": "e-mail with NUL inside",
+      "input": "us\u0000er@example.com",
+      "expected": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+    },
+    {
+      "name": "e-mail non-ASCII",
+      "input": "\u018fli@N\u00fcmun\u0259.az",
+      "expected": "e207bff2c05dc8f988532d0522ff3580d1633ede896beaa31a1a3a881ab40bb6"
+    },
+    {
+      "name": "e-mail with dotted capital I",
+      "input": "AL\u0130@EXAMPLE.COM",
+      "expected": "eb527c597ddcba46468ad9806d60fc5c3f4bcfdc1792adae5b2a2448f8624eea"
+    },
+    {
+      "name": "not e-mail: no dot in domain",
+      "input": "user@localhost",
+      "expected": "user@localhost"
+    },
+    {
+      "name": "not e-mail: two at signs",
+      "input": "a@b@example.com",
+      "expected": "e8f39b3e1382367d6d41ab34dc270d4e7533f978c9e9a775dfe2185b2f96b96c"
+    },
+    {
+      "name": "not e-mail: inner space",
+      "input": "user name@example.com",
+      "expected": "7b17fb0bd173f625b58636fb796407c22b3d16fc78302d79f0fd30c2fc2fc068"
+    },
+    {
+      "name": "not e-mail: dot right after at",
+      "input": "user@.com",
+      "expected": "user@.com"
+    },
+    {
+      "name": "not e-mail: trailing dot",
+      "input": "user@example.",
+      "expected": "user@example."
+    },
+    {
+      "name": "not e-mail: starts with at",
+      "input": "@example.com",
+      "expected": "@example.com"
+    },
+    {
+      "name": "e-mail minimal",
+      "input": "a@b.c",
+      "expected": "d648b243a3e817eaa3309e00e183483f2867baadf522099f0c2121770536b25a"
+    },
+    {
+      "name": "e-mail with plus tag and subdomain",
+      "input": "First.Last+tag@mail.Example.co.uk",
+      "expected": "0af9e1f6264e664b524bef9d791b50c3e212d0d8d899fb589fd74986cbfb0137"
+    },
+    {
+      "name": "phone international with plus",
+      "input": "+994501234567",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "phone formatted",
+      "input": "+994 (50) 123-45-67",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "phone with dots",
+      "input": "994.50.123.45.67",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "phone 10 digits",
+      "input": "0501234567",
+      "expected": "01cc498c268a4314d231f2e899a9faf717b7f8bbc9f3889bb1e539651907adde"
+    },
+    {
+      "name": "phone 9 digits with leading zero",
+      "input": "050123456",
+      "expected": "390c0cb701dd6a3157976b3bc6410ef192e9c705aab7fc4d4965e3f8d03000f2"
+    },
+    {
+      "name": "not phone: 9 digits without leading zero",
+      "input": "501234567",
+      "expected": "501234567"
+    },
+    {
+      "name": "phone 7 digits with plus",
+      "input": "+1234567",
+      "expected": "8bb0cf6eb9b17d0f7d22b456f121257dc1254e1f01665370476383ea776df414"
+    },
+    {
+      "name": "not phone: 6 digits with plus",
+      "input": "+123456",
+      "expected": "+123456"
+    },
+    {
+      "name": "not phone: 7 digits without plus",
+      "input": "1234567",
+      "expected": "1234567"
+    },
+    {
+      "name": "phone 15 digits",
+      "input": "123456789012345",
+      "expected": "e27a7686b8028cfee7b57d954c3abccfb2a701968925f52bbd482e77be5de0bb"
+    },
+    {
+      "name": "not phone: 16 digits",
+      "input": "1234567890123456",
+      "expected": "1234567890123456"
+    },
+    {
+      "name": "phone starting with parenthesis",
+      "input": "(050) 123-45-67",
+      "expected": "01cc498c268a4314d231f2e899a9faf717b7f8bbc9f3889bb1e539651907adde"
+    },
+    {
+      "name": "phone with surrounding spaces",
+      "input": "  +994501234567  ",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "phone with tabs and no-break spaces inside",
+      "input": "+994\t50\u00a0123 45 67",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "not phone: letters",
+      "input": "+994 50 CALL ME",
+      "expected": "+994 50 CALL ME"
+    },
+    {
+      "name": "not phone: double plus",
+      "input": "++994501234567",
+      "expected": "++994501234567"
+    },
+    {
+      "name": "not phone: slash separator",
+      "input": "050/1234567",
+      "expected": "050/1234567"
+    },
+    {
+      "name": "not phone: longer than 25 characters after plus",
+      "input": "+1 2 3 4 5 6 7 8 9 0 1 2 3 4",
+      "expected": "+1 2 3 4 5 6 7 8 9 0 1 2 3 4"
+    },
+    {
+      "name": "phone: exactly 25 characters after plus",
+      "input": "+1 2 3 4 5 6 7 8 9 0 1 2 3",
+      "expected": "bca2b41a2b25e137c83fee346af7bd1e0f52bd560583ca07a1b42f9944c5c50b"
+    },
+    {
+      "name": "not phone: starts with dash",
+      "input": "-994501234567",
+      "expected": "-994501234567"
+    },
+    {
+      "name": "128 characters is accepted",
+      "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+      "expected": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
+    },
+    {
+      "name": "129 characters is rejected",
+      "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+      "expected": null
+    },
+    {
+      "name": "64 astral characters (128 UTF-16 units) is accepted",
+      "input": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+      "expected": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"
+    },
+    {
+      "name": "65 astral characters is rejected",
+      "input": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00",
+      "expected": null
+    },
+    {
+      "name": "NUL inside id is removed",
+      "input": "user\u0000-1",
+      "expected": "user-1"
+    },
+    {
+      "name": "only NUL is rejected",
+      "input": "\u0000",
+      "expected": null
+    },
+    {
+      "name": "non-ASCII id",
+      "input": "istifad\u0259\u00e7i-1",
+      "expected": "istifad\u0259\u00e7i-1"
+    },
+    {
+      "name": "long e-mail over 128 characters is rejected",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+      "expected": null
+    },
+    {
+      "name": "v2 A5 name and e-mail in angle brackets",
+      "input": "John Doe <john@example.com>",
+      "expected": "855f96e983f1f8e8be944692b6f719fd54329826cb62e98015efee8e2e071dd4"
+    },
+    {
+      "name": "v2 A5 bare e-mail gives the same hash",
+      "input": "john@example.com",
+      "expected": "855f96e983f1f8e8be944692b6f719fd54329826cb62e98015efee8e2e071dd4"
+    },
+    {
+      "name": "v2 A5 e-mail followed by a note",
+      "input": "john@example.com (admin)",
+      "expected": "855f96e983f1f8e8be944692b6f719fd54329826cb62e98015efee8e2e071dd4"
+    },
+    {
+      "name": "v2 A5 mailto prefix",
+      "input": "mailto:John@Example.com",
+      "expected": "855f96e983f1f8e8be944692b6f719fd54329826cb62e98015efee8e2e071dd4"
+    },
+    {
+      "name": "v2 A5 tel prefix",
+      "input": "tel:+994501234567",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "v2 A5 bare phone gives the same hash",
+      "input": "+994501234567",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "v2 A5 TEL prefix with spaces",
+      "input": " TEL: +994 50 123 45 67 ",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "v2 A5 prefixed id with e-mail",
+      "input": "user:john@example.com",
+      "expected": "acebf0c9dd9a401b7916948b0860bf57ff8a4876f422d71276c57133f4542625"
+    },
+    {
+      "name": "v2 A5 quoted e-mail in a list",
+      "input": "\"john@example.com\", other",
+      "expected": "855f96e983f1f8e8be944692b6f719fd54329826cb62e98015efee8e2e071dd4"
+    },
+    {
+      "name": "v2 A5 at sign without an address stays",
+      "input": "team @ work",
+      "expected": "team @ work"
+    },
+    {
+      "name": "v2 A5 tel prefix with a non-phone stays",
+      "input": "tel:abc",
+      "expected": "tel:abc"
+    },
+    {
+      "name": "v2 greek capital sigma e-mail",
+      "input": "\u03a7\u03a1\u0397\u03a3\u03a4\u039f\u03a3@x.gr",
+      "expected": "a40e54331de9169141a19c92c6ec09409af26baa2e319a5654d7868d72abc738"
+    },
+    {
+      "name": "audit2 A8 phone: prefix",
+      "input": "phone:+994501234567",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "audit2 A8 sms: and email: prefixes",
+      "input": "SMS:+994501234567",
+      "expected": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+    },
+    {
+      "name": "audit2 A8 email: prefix",
+      "input": "email:User@Example.com",
+      "expected": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+    },
+    {
+      "name": "audit2 A8 JWT is rejected",
+      "input": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOWdkazcifQ.eyJzdWIiOiIyNDgyODk3NjEwMDEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+      "expected": null
+    },
+    {
+      "name": "audit2 A8 JWT after a prefix is rejected",
+      "input": " eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+      "expected": null
+    },
+    {
+      "name": "audit2 A8 card number is hashed",
+      "input": "4111111111111111",
+      "expected": "9bbef19476623ca56c17da75fd57734dbf82530686043a6e491c6d71befe8f6e"
+    },
+    {
+      "name": "audit2 A8 grouped card number is hashed",
+      "input": "4111 1111 1111 1111",
+      "expected": "9bbef19476623ca56c17da75fd57734dbf82530686043a6e491c6d71befe8f6e"
+    },
+    {
+      "name": "audit2 A8 16 digits that fail Luhn are kept",
+      "input": "4111111111111112",
+      "expected": "4111111111111112"
+    },
+    {
+      "name": "audit2 A9 mailto with dotless i is not a prefix",
+      "input": "ma\u0131lto:user@example.com",
+      "expected": "f954b105fa0f87f826fb2b583f3a8211d017b8b9294a4d295f38ca75fd588df9"
+    },
+    {
+      "name": "audit2 A9 tel with long s is not a prefix",
+      "input": "te\u017f:+994501234567",
+      "expected": "te\u017f:+994501234567"
+    },
+    {
+      "name": "audit2 A8 id with a number is kept",
+      "input": "user_994501234567",
+      "expected": "user_994501234567"
+    },
+    {
+      "name": "audit3 two at signs: e-mail first",
+      "input": "user@shop.az@tenant",
+      "expected": "429b674a8aaf6d1dd5960a08f4f0f45e97e6e800c2a2275e4bd9c1b89605084c"
+    },
+    {
+      "name": "audit3 two at signs: e-mail last",
+      "input": "tenant@user@shop.az",
+      "expected": "429b674a8aaf6d1dd5960a08f4f0f45e97e6e800c2a2275e4bd9c1b89605084c"
+    },
+    {
+      "name": "audit3 two at signs: no e-mail",
+      "input": "a@b@c",
+      "expected": "a@b@c"
+    },
+    {
+      "name": "audit3 three at signs",
+      "input": "x@user@shop.az@y",
+      "expected": "429b674a8aaf6d1dd5960a08f4f0f45e97e6e800c2a2275e4bd9c1b89605084c"
+    },
+    {
+      "name": "audit3 fullwidth at sign",
+      "input": "user\uff20shop.az",
+      "expected": "429b674a8aaf6d1dd5960a08f4f0f45e97e6e800c2a2275e4bd9c1b89605084c"
+    },
+    {
+      "name": "audit3 fullwidth at sign, upper case and spaces",
+      "input": " User\uff20Shop.AZ ",
+      "expected": "429b674a8aaf6d1dd5960a08f4f0f45e97e6e800c2a2275e4bd9c1b89605084c"
+    },
+    {
+      "name": "audit3 fullwidth at sign without a domain",
+      "input": "user\uff20shop",
+      "expected": "user\uff20shop"
+    }
+  ]
+}

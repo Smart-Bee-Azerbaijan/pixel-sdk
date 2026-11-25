@@ -7,6 +7,11 @@ plugins {
 group = "az.smartbee"
 version = "1.0.0"
 
+// Açıq API dondurulur: hər açıq elan `public` yazılmalıdır, yoxsa yığım alınmır (təsadüfən açıq qalan sinif olmasın).
+kotlin {
+    explicitApi()
+}
+
 android {
     namespace = "az.smartbee.pixel"
     compileSdk = 35
@@ -23,6 +28,9 @@ android {
 
     kotlinOptions {
         jvmTarget = "11"
+        // Kitabxana Kotlin 1.9 ilə yığılan tətbiqlərdə də işləməlidir: metadata və stdlib 1.9 səviyyəsində qalır.
+        languageVersion = "1.9"
+        apiVersion = "1.9"
     }
 
     publishing {
@@ -38,7 +46,9 @@ android {
 }
 
 // SDK-nın iş vaxtı asılılığı yoxdur: yalnız Android platforması və Kotlin stdlib.
+// Plaginin öz (2.x) stdlib-i əlavə olunmur (gradle.properties); dərc olunan POM-da 1.9 versiyası göstərilir.
 dependencies {
+    api("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
     testImplementation("junit:junit:4.13.2")
     // Android-in org.json sinifləri JVM testlərində boşdur; real tətbiq işlədilir.
     testImplementation("org.json:json:20240303")
@@ -51,12 +61,15 @@ dependencies {
 tasks.withType<Test>().configureEach {
     // Testlər topluları ortaq spesifikasiyanın sxemi və vektorları ilə yoxlayır.
     systemProperty("spec.dir", rootProject.file("../../spec").absolutePath)
+    // Sxem və ya ortaq vektorlar dəyişəndə testlər yenidən işləməlidir (yoxsa Gradle nəticəni UP-TO-DATE sayar).
+    inputs.dir(rootProject.file("../../spec/schema")).withPropertyName("specSchema").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootProject.file("../../spec/vectors")).withPropertyName("specVectors").withPathSensitivity(PathSensitivity.RELATIVE)
     // Robolectric-in asılılığı (Conscrypt) türk / Azərbaycan dil ayarında öz nativ faylının adını səhv qurur
     // ("WINDOWS" -> "wındows"). Testlər neytral dil ayarı ilə işlədilir.
     jvmArgs("-Duser.language=en", "-Duser.country=US")
 }
 
-// Maven paketi: az.smartbee:pixel. JitPack və Maven Central eyni nəşrdən istifadə edir.
+// Maven paketi: az.smartbee:pixel.
 afterEvaluate {
     publishing {
         // Öz Maven repo-muz (https://c.cdnsb.net/maven): fayllar backend-in verdiyi qovluğa yazılır.

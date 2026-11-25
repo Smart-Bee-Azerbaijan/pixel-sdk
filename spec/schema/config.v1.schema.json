@@ -11,6 +11,7 @@
     "enabled": { "type": "boolean" },
     "sample": { "type": "number", "minimum": 0, "maximum": 1 },
     "ttl_s": { "type": "integer", "minimum": 60 },
+    "sdk_latest": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
     "session_timeout_s": { "type": "integer", "minimum": 60 },
     "consent_default": {
       "type": "object",

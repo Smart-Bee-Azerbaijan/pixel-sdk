@@ -1,6 +1,6 @@
-// Flutter-in iOS modulunun minimal əvəzi. Yalnız CI-da plagin faylının tip yoxlaması üçündür:
-// tam Flutter tətbiqi yığmadan Swift sintaksisi və nativ SDK-ya çağırışlar yoxlanır.
-// Real Flutter modulu ilə uyğunluğu təmin etmir.
+// A minimal stand-in for Flutter's iOS module. It exists only to type-check the plugin file in CI:
+// the Swift syntax and the calls into the native SDK are checked without building a full Flutter app.
+// It does not guarantee compatibility with the real Flutter module.
 
 import Foundation
 

@@ -1,11 +1,11 @@
-// React Native tətbiqinin Gradle layihəsinə avtomatik qoşulur (autolinking).
-// Plagin versiyaları tətbiqin öz konfiqurasiyasından gəlir.
+// Added to the app's Gradle project automatically (React Native autolinking).
+// The plugin versions come from the app's own configuration.
 plugins {
     id 'com.android.library'
     id 'org.jetbrains.kotlin.android'
 }
 
-// Tətbiqin öz SDK versiyaları varsa onlar götürülür (React Native şablonunun rootProject.ext dəyərləri).
+// The app's own SDK versions win when it defines them (the rootProject.ext values of the React Native template).
 def safeExtGet = { String name, fallback ->
     rootProject.ext.has(name) ? rootProject.ext.get(name) : fallback
 }
@@ -15,22 +15,30 @@ android {
     compileSdk safeExtGet('compileSdkVersion', 35)
 
     defaultConfig {
-        minSdk safeExtGet('minSdkVersion', 24)
+        // The native core supports API 21; React Native itself sets a higher floor through rootProject.ext.
+        minSdk safeExtGet('minSdkVersion', 21)
+        // R8 rules for the advertising-id classes that are read by reflection are passed on to the app.
+        // The file is a copy of the native SDK's rules (mobile/sync-native.mjs).
+        consumerProguardFiles 'consumer-rules.pro'
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
 
-    kotlinOptions {
-        jvmTarget = '17'
+// `android.kotlinOptions { }` is deprecated in Kotlin 2.0 and an error in later releases; the task-level
+// `compilerOptions` DSL exists since Kotlin 1.8 and stays valid.
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
 dependencies {
-    // Tətbiqdə versiyanı React Native Gradle plagini təyin edir ('+' onun tərəfindən əvəzlənir).
-    // smartbeeReactNativeVersion yalnız bu repo-dakı yığma yoxlaması üçündür.
+    // In an app the React Native Gradle plugin sets the version (it replaces '+').
+    // smartbeeReactNativeVersion exists only for the build check inside this repository.
     def reactNativeVersion = project.findProperty('smartbeeReactNativeVersion') ?: '+'
     implementation "com.facebook.react:react-android:${reactNativeVersion}"
 }

@@ -10,6 +10,7 @@ RCT_EXTERN_METHOD(setConsent:(BOOL)analytics ads:(BOOL)ads)
 RCT_EXTERN_METHOD(reset)
 RCT_EXTERN_METHOD(flush)
 RCT_EXTERN_METHOD(handleDeepLink:(NSString *)url)
+RCT_EXTERN_METHOD(handleInitialLink:(NSString *)url)
 RCT_EXTERN_METHOD(getAnonymousId:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 
 @end

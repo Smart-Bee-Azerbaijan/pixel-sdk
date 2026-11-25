@@ -7,9 +7,9 @@
       "sha256": "5112b461d32844f6fc0ea92e45d08556471d1e9425bb23cffdb2f27898375f5b"
     },
     {
-      "input": "Farid.Test@Example.COM",
-      "normalized": "farid.test@example.com",
-      "sha256": "a0dc5993124a6eb19ba778aab8fa6852310a325d4b7d0b33bd111546fcf52b9f"
+      "input": "User.Test@Example.COM",
+      "normalized": "user.test@example.com",
+      "sha256": "f3f97d08c61188f515a70bfa1f11ed320fd719baa089fc6669d820ca9fa0aac3"
     }
   ],
   "phone": [

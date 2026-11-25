@@ -5,7 +5,7 @@ let package = Package(
     name: "SmartBeePixel",
     platforms: [
         .iOS(.v13),
-        // macOS yalnız `swift test` üçündür: nüvə məntiqi simulyatorsuz yoxlanır.
+        // macOS is only for `swift test`: the core logic is tested without a simulator.
         .macOS(.v10_15),
     ],
     products: [

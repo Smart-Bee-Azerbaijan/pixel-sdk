@@ -1,0 +1,259 @@
+{
+  "description": "Keçidin query hissəsindən kampaniya (ctx.campaign): utm_* və (ads true olduqda) klik ID-ləri. expected: kampaniya obyekti, heç nə tapılmırsa null.",
+  "cases": [
+    {
+      "name": "utm parameters",
+      "url": "https://shop.az/?utm_source=facebook&utm_medium=cpc&utm_campaign=bf&utm_term=shoes&utm_content=ad1&page=2",
+      "expected": {
+        "utm_source": "facebook",
+        "utm_medium": "cpc",
+        "utm_campaign": "bf",
+        "utm_term": "shoes",
+        "utm_content": "ad1"
+      }
+    },
+    {
+      "name": "all click ids with ads consent",
+      "url": "https://shop.az/?utm_source=fb&fbclid=C-fbclid&gclid=C-gclid&gbraid=C-gbraid&wbraid=C-wbraid&ttclid=C-ttclid&msclkid=C-msclkid&dclid=C-dclid&twclid=C-twclid&yclid=C-yclid&li_fat_id=C-li_fat_id",
+      "expected": {
+        "utm_source": "fb",
+        "fbclid": "C-fbclid",
+        "gclid": "C-gclid",
+        "gbraid": "C-gbraid",
+        "wbraid": "C-wbraid",
+        "ttclid": "C-ttclid",
+        "msclkid": "C-msclkid",
+        "dclid": "C-dclid",
+        "twclid": "C-twclid",
+        "yclid": "C-yclid",
+        "li_fat_id": "C-li_fat_id"
+      }
+    },
+    {
+      "name": "all click ids without ads consent",
+      "url": "https://shop.az/?utm_source=fb&fbclid=C-fbclid&gclid=C-gclid&gbraid=C-gbraid&wbraid=C-wbraid&ttclid=C-ttclid&msclkid=C-msclkid&dclid=C-dclid&twclid=C-twclid&yclid=C-yclid&li_fat_id=C-li_fat_id",
+      "ads": false,
+      "expected": {
+        "utm_source": "fb"
+      }
+    },
+    {
+      "name": "only click ids without ads consent gives nothing",
+      "url": "https://shop.az/?gclid=G1&fbclid=F1",
+      "ads": false,
+      "expected": null
+    },
+    {
+      "name": "unknown utm and upper-case names are ignored",
+      "url": "https://shop.az/?utm_id=7&UTM_SOURCE=x&Gclid=1&utm_source2=y&xutm_source=z",
+      "expected": null
+    },
+    {
+      "name": "no query",
+      "url": "https://shop.az/path",
+      "expected": null
+    },
+    {
+      "name": "empty query and fragment only",
+      "url": "https://shop.az/?#utm_source=x",
+      "expected": null
+    },
+    {
+      "name": "fragment is not read",
+      "url": "https://shop.az/?utm_source=a#/x?utm_medium=b",
+      "expected": {
+        "utm_source": "a"
+      }
+    },
+    {
+      "name": "percent-encoded names and values, plus is a space",
+      "url": "myapp://open?utm%5Fsource=news%20letter&utm_campaign=black+friday&utm_term=%C9%99%C3%A7",
+      "expected": {
+        "utm_source": "news letter",
+        "utm_campaign": "black friday",
+        "utm_term": "\u0259\u00e7"
+      }
+    },
+    {
+      "name": "semicolon is not a separator",
+      "url": "https://shop.az/?utm_source=a;utm_medium=b&utm_term=c",
+      "expected": {
+        "utm_source": "a;utm_medium=b",
+        "utm_term": "c"
+      }
+    },
+    {
+      "name": "duplicates: last one wins",
+      "url": "https://shop.az/?utm_source=a&utm_source=b&gclid=1&gclid=2",
+      "expected": {
+        "utm_source": "b",
+        "gclid": "2"
+      }
+    },
+    {
+      "name": "invalid percent-encoding skips that pair only",
+      "url": "https://shop.az/?utm_source=ok&utm_medium=%zz&utm_term=%E0%A4%A&utm_campaign=a%2",
+      "expected": {
+        "utm_source": "ok"
+      }
+    },
+    {
+      "name": "duplicate where the last one is invalid keeps the earlier one",
+      "url": "https://shop.az/?utm_source=first&utm_source=%ff",
+      "expected": {
+        "utm_source": "first"
+      }
+    },
+    {
+      "name": "empty values are skipped",
+      "url": "https://shop.az/?utm_source=&utm_medium&utm_campaign=x&gclid=",
+      "expected": {
+        "utm_campaign": "x"
+      }
+    },
+    {
+      "name": "NUL is removed, value of only NUL is skipped",
+      "url": "myapp://x?utm_source=a%00b&gclid=%00&utm_medium=m",
+      "expected": {
+        "utm_source": "ab",
+        "utm_medium": "m"
+      }
+    },
+    {
+      "name": "e-mail in value is redacted",
+      "url": "https://shop.az/?utm_source=user%40example.com&utm_term=write+to+a@b.az+now&utm_content=@handle",
+      "expected": {
+        "utm_source": "[redacted]",
+        "utm_term": "write to [redacted] now",
+        "utm_content": "@handle"
+      }
+    },
+    {
+      "name": "JWT value is redacted",
+      "url": "https://shop.az/?utm_content=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz&gclid=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz",
+      "expected": {
+        "utm_content": "[redacted]",
+        "gclid": "[redacted]"
+      }
+    },
+    {
+      "name": "URL value is cleaned",
+      "url": "https://shop.az/?utm_source=https%3A%2F%2Fuser%3Apw%40ref.az%2Freset%2F9f8a7b6c5d4e%3Ftoken%3D1%26a%3D2%23frag&utm_medium=%2F%2Fx.az%2Fp%3Fkey%3D1",
+      "expected": {
+        "utm_source": "https://ref.az/reset/[redacted]?a=2",
+        "utm_medium": "//x.az/p"
+      }
+    },
+    {
+      "name": "URL value with nested URL",
+      "url": "https://shop.az/?utm_content=https%3A%2F%2Fa.az%2F%3Fr%3Dhttps%253A%252F%252Fb.az%252F%253Fsession%253D1%2526ok%253D1%26gclid%3DG",
+      "ads": false,
+      "expected": {
+        "utm_content": "https://a.az/?r=https%3A%2F%2Fb.az%2F%3Fok%3D1"
+      }
+    },
+    {
+      "name": "value is cut to 512 characters",
+      "url": "https://shop.az/?utm_source=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&gclid=gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "expected": {
+        "utm_source": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "gclid": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
+      }
+    },
+    {
+      "name": "cut does not split a surrogate pair",
+      "url": "https://shop.az/?utm_term=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx%F0%9F%98%80",
+      "expected": {
+        "utm_term": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "value with equals signs",
+      "url": "https://shop.az/?utm_content=a=b=c&utm_term==x",
+      "expected": {
+        "utm_term": "=x",
+        "utm_content": "a=b=c"
+      }
+    },
+    {
+      "name": "leading question marks and ampersands",
+      "url": "https://shop.az/??utm_source=a&&utm_medium=b&",
+      "expected": {
+        "utm_medium": "b"
+      }
+    },
+    {
+      "name": "app scheme link",
+      "url": "myapp://product/5?utm_source=push&utm_campaign=spring&twclid=T1",
+      "expected": {
+        "utm_source": "push",
+        "utm_campaign": "spring",
+        "twclid": "T1"
+      }
+    },
+    {
+      "name": "v2 A8 new click ids with ads",
+      "url": "https://shop.az/?utm_source=snap&ScCid=a1&rdt_cid=b&_gl=1*abc&mc_eid=c&srsltid=AfmBOoq1&epik=dj0yJnU9&gad_source=1",
+      "expected": {
+        "utm_source": "snap",
+        "sccid": "a1",
+        "rdt_cid": "b",
+        "_gl": "1*abc",
+        "mc_eid": "c",
+        "srsltid": "AfmBOoq1",
+        "epik": "dj0yJnU9",
+        "gad_source": "1"
+      }
+    },
+    {
+      "name": "v2 A8 new click ids without ads",
+      "url": "https://shop.az/?utm_source=snap&ScCid=a1&rdt_cid=b&_gl=1*abc&mc_eid=c&srsltid=AfmBOoq1&epik=dj0yJnU9&gad_source=1",
+      "ads": false,
+      "expected": {
+        "utm_source": "snap"
+      }
+    },
+    {
+      "name": "v2 A8 only ScCid is accepted in mixed case",
+      "url": "https://shop.az/?GCLID=one&SCCID=x&sccid=two&ScCid=three&Rdt_Cid=no",
+      "expected": {
+        "sccid": "three"
+      }
+    },
+    {
+      "name": "audit3 utm values: phone and card are masked, a numeric click id is kept",
+      "url": "https://shop.az/?utm_term=%2B994501234567&utm_content=4111111111111111&utm_source=fb&yclid=4111111111111111&utm_campaign=x+20261125",
+      "expected": {
+        "utm_source": "fb",
+        "utm_campaign": "x 20261125",
+        "utm_term": "[redacted]",
+        "utm_content": "[redacted]",
+        "yclid": "4111111111111111"
+      }
+    },
+    {
+      "name": "audit3 utm values: card in form encoding and a phone inside a text",
+      "url": "https://shop.az/?utm_term=4111+1111+1111+1111&utm_medium=call%20%2B994%2050%20123%2045%2067%20now",
+      "expected": {
+        "utm_medium": "call [redacted] now",
+        "utm_term": "[redacted]"
+      }
+    },
+    {
+      "name": "audit3 utm value: fullwidth at sign",
+      "url": "https://shop.az/?utm_source=user%EF%BC%A0shop.az&utm_medium=x",
+      "expected": {
+        "utm_source": "[redacted]",
+        "utm_medium": "x"
+      }
+    },
+    {
+      "name": "audit3 click id value: phone is not masked",
+      "url": "https://shop.az/?gclid=%2B994501234567&utm_source=g",
+      "expected": {
+        "utm_source": "g",
+        "gclid": "+994501234567"
+      }
+    }
+  ]
+}

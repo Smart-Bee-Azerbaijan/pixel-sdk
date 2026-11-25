@@ -1,58 +1,58 @@
-# SmartBee Pixel — Standart eventlər v1
+# SmartBee Pixel — Standard events v1
 
-Vəziyyət: **qaralama**.
+Status: **1.0 — frozen with SDK 1.0.0**.
 
-Standart adlar olduğu kimi yazılmalıdır (böyük-kiçik hərf fərqlidir). Bu siyahıda olmayan hər ad xüsusi (custom) event sayılır və eyni `track` metodu ilə göndərilir. Xüsusi ad `^[A-Za-z][A-Za-z0-9_]{0,63}$` qaydasına uyğun olmalıdır.
+Standard names must be written exactly as shown (they are case-sensitive). Every name that is not in this list is a custom event and is sent with the same `track` method. A custom name must match `^[A-Za-z][A-Za-z0-9_]{0,63}$`.
 
-Reklam platformalarının (Meta, TikTok, Google) event adlarına çevirmə cədvəli serverdən ötürmə mərhələsində əlavə olunacaq.
+The table that maps these names to the event names of advertising platforms (Meta, TikTok, Google) will be added with the server-side forwarding stage.
 
-## Kommersiya və konversiya
+## Commerce and conversion
 
-| Event | Nə vaxt | Tövsiyə olunan parametrlər |
+| Event | When | Recommended parameters |
 |---|---|---|
-| `ViewContent` | Məhsula, elana, məqaləyə baxış | `content_ids`, `content_type`, `content_name`, `content_category`, `value`, `currency` |
-| `Search` | Axtarış | `search_string` |
-| `AddToCart` | Səbətə əlavə | `content_ids`, `contents`, `value`, `currency` |
-| `AddToWishlist` | İstək siyahısına əlavə | `content_ids`, `value`, `currency` |
-| `InitiateCheckout` | Ödənişə başlama | `contents`, `num_items`, `value`, `currency` |
-| `AddPaymentInfo` | Ödəniş məlumatının daxil edilməsi | `value`, `currency` |
-| `Purchase` | Sifarişin tamamlanması | `value`\*, `currency`\*, `order_id`, `contents`, `num_items` |
-| `Lead` | Müraciət, form | `value`, `currency` |
-| `CompleteRegistration` | Qeydiyyatın tamamlanması | `method` |
-| `Contact` | Əlaqə cəhdi | `method` |
-| `Subscribe` | Ödənişli abunəlik | `value`, `currency` |
-| `StartTrial` | Sınaq müddəti | `value`, `currency` |
-| `Schedule` | Görüş təyini | — |
-| `SubmitApplication` | Ərizə göndərilməsi | — |
-| `FindLocation` | Filial / ünvan axtarışı | — |
-| `CustomizeProduct` | Məhsulun fərdiləşdirilməsi | `content_ids` |
-| `Donate` | İanə | `value`, `currency` |
-| `Login` | Hesaba giriş | `method` |
+| `ViewContent` | A product, listing or article is viewed | `content_ids`, `content_type`, `content_name`, `content_category`, `value`, `currency` |
+| `Search` | Search | `search_string` |
+| `AddToCart` | Added to the cart | `content_ids`, `contents`, `value`, `currency` |
+| `AddToWishlist` | Added to the wishlist | `content_ids`, `value`, `currency` |
+| `InitiateCheckout` | Checkout started | `contents`, `num_items`, `value`, `currency` |
+| `AddPaymentInfo` | Payment details entered | `value`, `currency` |
+| `Purchase` | Order completed | `value`\*, `currency`\*, `order_id`, `contents`, `num_items` |
+| `Lead` | Enquiry, form | `value`, `currency` |
+| `CompleteRegistration` | Registration completed | `method` |
+| `Contact` | Contact attempt | `method` |
+| `Subscribe` | Paid subscription | `value`, `currency` |
+| `StartTrial` | Trial period | `value`, `currency` |
+| `Schedule` | Appointment booked | — |
+| `SubmitApplication` | Application submitted | — |
+| `FindLocation` | Branch / address lookup | — |
+| `CustomizeProduct` | Product customised | `content_ids` |
+| `Donate` | Donation | `value`, `currency` |
+| `Login` | Sign-in | `method` |
 
-\* `Purchase` üçün `value` və `currency` məcburidir. Onlarsız event qəbul olunur, amma paneldə xəbərdarlıq göstərilir və reklam platformalarına ötürülmür.
+\* `value` and `currency` are required for `Purchase`. Without them the event is accepted, but a warning is shown in the dashboard and it is not forwarded to advertising platforms.
 
-## Avtomatik eventlər
+## Automatic events
 
-`PageView`, `FormSubmit`, `OutboundClick`, `ContactClick`, `AppInstall`, `AppUpdate`, `AppOpen`, `SessionStart`, `ScreenView`, `DeepLinkOpen`. Təsviri: [SDK-API.md](SDK-API.md). Bu adları əl ilə göndərmək tövsiyə olunmur (ikiqat sayılma).
+`PageView`, `FormSubmit`, `OutboundClick`, `ContactClick`, `AppInstall`, `AppUpdate`, `AppOpen`, `SessionStart`, `ScreenView`, `DeepLinkOpen`. They are described in [SDK-API.md](SDK-API.md). Sending these names manually is not recommended (double counting).
 
-## Parametrlər
+## Parameters
 
-| Parametr | Tip | Təsvir |
+| Parameter | Type | Description |
 |---|---|---|
-| `value` | ədəd | Məbləğ. Sətir yox, ədəd olmalıdır. |
-| `currency` | sətir | ISO 4217, üç böyük hərf (`AZN`, `USD`). |
-| `order_id` | sətir | Sifariş nömrəsi. `Purchase`-in təkrar sayılmasının qarşısını alır. |
-| `content_ids` | sətir massivi | Məhsul / elan ID-ləri. |
-| `content_type` | sətir | `product` və ya `product_group`. |
-| `content_name` | sətir | Ad. |
-| `content_category` | sətir | Kateqoriya. |
-| `contents` | obyekt massivi | `[{ "id": "p1", "quantity": 2, "item_price": 25 }]` |
-| `num_items` | tam ədəd | Məhsul sayı. |
-| `search_string` | sətir | Axtarış sorğusu. |
-| `method` | sətir | Üsul (`email`, `google`, `phone`, `whatsapp` və s.). |
+| `value` | number | The amount. It must be a number, not a string. |
+| `currency` | string | ISO 4217, three upper-case letters (`AZN`, `USD`). |
+| `order_id` | string | The order number. It prevents a `Purchase` from being counted twice. |
+| `content_ids` | array of strings | Product / listing IDs. |
+| `content_type` | string | `product` or `product_group`. |
+| `content_name` | string | The name. |
+| `content_category` | string | The category. |
+| `contents` | array of objects | `[{ "id": "p1", "quantity": 2, "item_price": 25 }]` |
+| `num_items` | integer | The number of items. |
+| `search_string` | string | The search query. |
+| `method` | string | The method (`email`, `google`, `phone`, `whatsapp` and so on). |
 
-Başqa hər açar icazəlidir və olduğu kimi saxlanır.
+Any other key is allowed and is stored as it is.
 
-## Qadağan olunmuş açarlar
+## Forbidden keys
 
-`props` daxilində bu açarlar SDK tərəfindən atılır: `email`, `phone`, `password`, `pass`, `token`, `card`, `card_number`, `cvv`, `pin`, `fin`. E-poçt və telefon yalnız `identify` ilə, hash olunmuş şəkildə göndərilir.
+Inside `props` these keys are dropped by the SDK: `email`, `phone`, `password`, `pass`, `token`, `card`, `card_number`, `cvv`, `pin`, `fin`. E-mail and phone are sent only through `identify`, in hashed form.

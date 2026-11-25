@@ -96,10 +96,12 @@ class AndroidLayerTest {
                 return HttpResult(200)
             }
 
-            override fun get(url: String, etag: String?): HttpResult = HttpResult(304)
+            override fun get(url: String, etag: String?): HttpResult = HttpResult(200, "{\"enabled\":true}")
         }
-        val core = Core("demo0andr1", SmartBeeOptions(), SqliteStore(database), queue, transport, AndroidEnv(context))
+        val core = Core("demo0andr1", opts(), SqliteStore(database), queue, transport, AndroidEnv(context))
         core.start()
+        // İlk işə düşmədə razılıq konfiq cavabından sonra məlum olur.
+        core.refreshConfig()
         core.track("Purchase", mapOf("value" to 250, "currency" to "AZN"), "order:A-1")
         assertTrue(queue.size() >= 2)
         core.flush(force = true)
@@ -108,7 +110,7 @@ class AndroidLayerTest {
         assertTrue(posts.joinToString().contains("\"platform\":\"android\""))
 
         // Yenidən başlayanda identifikator eynidir və AppInstall təkrarlanmır.
-        val again = Core("demo0andr1", SmartBeeOptions(), SqliteStore(PixelDatabase(context)), queue, transport, AndroidEnv(context))
+        val again = Core("demo0andr1", opts(), SqliteStore(PixelDatabase(context)), queue, transport, AndroidEnv(context))
         again.start()
         assertEquals(core.anonymousId, again.anonymousId)
         posts.clear()
@@ -135,9 +137,9 @@ class AndroidLayerTest {
         assertFalse(HttpTransport.allowed(URL("http://localhost:8787/v1/e"), debug = false))
         assertTrue(HttpTransport.allowed(URL("http://10.0.2.2:8787/v1/e"), debug = true))
         // İcazəsiz ünvana sorğu göndərilmir: şəbəkəyə çıxmadan rədd olunur.
-        assertEquals(400, HttpTransport(false).post("http://example.invalid/v1/e", "{}").status)
-        assertEquals(400, HttpTransport(false).get("http://example.invalid/v1/x/config", null).status)
-        assertEquals(400, HttpTransport(false).post("not a url", "{}").status)
+        assertEquals(-1, HttpTransport(false).post("http://example.invalid/v1/e", "{}").status)
+        assertEquals(-1, HttpTransport(false).get("http://example.invalid/v1/x/config", null).status)
+        assertEquals(-1, HttpTransport(false).post("not a url", "{}").status)
     }
 
     @Test

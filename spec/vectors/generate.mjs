@@ -111,7 +111,7 @@ invalid('props-not-object', 'props obyekt deyil', { ...head, ...web, events: [{ 
 write('config-default.json', {
   v: 1, key: 'k7m2x9qa4t', rev: 12, enabled: true, sample: 1, ttl_s: 3600, session_timeout_s: 1800,
   consent_default: { analytics: true, ads: true },
-  auto: { page_view: true, spa: true, forms: true, outbound: true, contact_links: true, scroll: false, lifecycle: true, screens: true, deeplinks: true },
+  auto: { page_view: true, spa: true, forms: true, outbound: true, contact_links: true, lifecycle: true, screens: true, deeplinks: true },
   blocked_events: [], strip_params: [],
   flush: { interval_s: 30, max_batch: 50, max_queue: 1000 },
   rules: [],
@@ -120,6 +120,11 @@ write('config-default.json', {
 const hashed = (input, normalized) => ({ input, normalized, sha256: sha256(normalized) });
 write('hashing.json', {
   description: 'identify üçün normallaşdırma və SHA-256. Hər SDK bu girişlərdən eyni normalized və sha256 dəyərlərini almalıdır.',
-  email: [hashed('  A@B.az ', 'a@b.az'), hashed('Farid.Test@Example.COM', 'farid.test@example.com')],
+  email: [hashed('  A@B.az ', 'a@b.az'), hashed('User.Test@Example.COM', 'user.test@example.com')],
   phone: [hashed('+994 (50) 123-45-67', '994501234567'), hashed('994501234567', '994501234567')],
 });
+
+// Təmizləmə vektorları (sanitize-url.json, sanitize-props.json, identity.json, campaign.json) burada yaradılmır:
+// girişlər həmin fayllarda əl ilə yazılır, gözlənilən dəyərlər isə istinad tətbiqin (veb tracker) nəticəsidir və
+// `SB_UPDATE_VECTORS=1 npm test -w tracker` ilə yenilənir (bax tracker/test/vectors.test.js). Eyni fayllar
+// Android (SanitizeVectorsTest.kt) və iOS (SanitizeVectorsTests.swift) testlərində oxunur.

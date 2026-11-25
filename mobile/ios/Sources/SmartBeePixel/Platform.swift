@@ -2,6 +2,13 @@ import Foundation
 #if canImport(UIKit) && !os(watchOS)
 import UIKit
 #endif
+// Reklam identifikatoru yalnız iOS / tvOS-da oxunur; macOS-da (testlər, körpülərin tip yoxlaması) bu modullar işlədilmir.
+#if canImport(AdSupport) && (os(iOS) || os(tvOS))
+import AdSupport
+#if canImport(AppTrackingTransparency)
+import AppTrackingTransparency
+#endif
+#endif
 
 /// SDK-nın fayllarının yeri: tətbiqin Application Support qovluğunda ayrıca qovluq.
 /// Qovluq ehtiyat nüsxədən (iCloud / kompüter) çıxarılır ki, anonim ID başqa cihaza bərpa olunub
@@ -36,114 +43,382 @@ enum Storage {
             return false
         }
     }
+
+    enum Loaded {
+        /// Fayl yoxdur: ilk işə salınma.
+        case missing
+        /// Fayl var, amma oxunmur (məsələn cihaz yenidən başlayıb və hələ kilidi açılmayıb).
+        case unreadable
+        case data(Data)
+    }
+
+    static func read(_ file: URL) -> Loaded {
+        do {
+            let data = try Data(contentsOf: file)
+            return .data(data)
+        } catch {
+            return isMissing(error) ? .missing : .unreadable
+        }
+    }
+
+    private static func isMissing(_ error: Error) -> Bool {
+        let failure = error as NSError
+        if failure.domain == NSCocoaErrorDomain {
+            return failure.code == NSFileReadNoSuchFileError || failure.code == NSFileNoSuchFileError
+        }
+        return failure.domain == NSPOSIXErrorDomain && failure.code == Int(ENOENT)
+    }
 }
 
 /// Açar-dəyər yaddaşı: kiçik JSON faylı. Dəyərlər yaddaşda keşlənir, hər dəyişiklik dərhal yazılır.
+///
+/// Yeni vəziyyət əvvəlcə fayla yazılır, sonra yaddaşda qüvvəyə minir. Yazı alınmasa (disk dolu, fayl kilidli) dəyər
+/// yenə yaddaşda tətbiq olunur (məsələn geri alınmış razılıq dərhal işləyir), `unsaved` işarələnir və yazı hər
+/// sonrakı dəyişiklikdə və `retrySave` çağırışında təkrarlanır: yaddaşla disk səssizcə ayrılmır.
 final class FileStore: Store {
     private var values: [String: String] = [:]
     private let file: URL?
+    /// Fayl var, amma oxunmadı. Belə yaddaş boş görünür və heç vaxt diskə yazmır ki, əsl məlumatın
+    /// (razılıq, anonim ID) üstündən yazılmasın; `SmartBee` bu halda başlamır və sonra yenidən cəhd edir.
+    private(set) var unreadable = false
+    /// Son yazı diskə çatmayıb.
+    private(set) var unsaved = false
+    /// Fayl oxundu, amma təhlil olunmadı (pozulub). Yaddaş boş başlayır, amma saxlanmış razılıq itmiş ola bilər:
+    /// `Core` bu halda razılığı «bildirilməyib» yox, rədd edilmiş sayır.
+    private(set) var corrupt = false
 
     init(directory: URL? = nil) {
         file = Storage.directory(directory)?.appendingPathComponent("store.json")
-        if let file = file, let data = try? Data(contentsOf: file),
-           let saved = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: String] {
-            values = saved
+        guard let url = file else { return }
+        switch Storage.read(url) {
+        case .missing:
+            break
+        case .unreadable:
+            unreadable = true
+        case .data(let data):
+            if let saved = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: String] {
+                values = saved
+            } else {
+                corrupt = true
+            }
         }
     }
 
     func get(_ key: String) -> String? { return values[key] }
 
     func put(_ key: String, _ value: String) {
-        if values[key] == value { return }
-        values[key] = value
-        save()
+        if values[key] == value, !unsaved { return }
+        var next = values
+        next[key] = value
+        commit(next)
     }
 
     func remove(_ key: String) {
-        if values.removeValue(forKey: key) != nil { save() }
+        if values[key] == nil, !unsaved { return }
+        var next = values
+        next[key] = nil
+        commit(next)
     }
 
-    private func save() {
-        guard let file = file, let data = try? JSONSerialization.data(withJSONObject: values, options: []) else { return }
-        _ = Storage.write(data, to: file)
+    func retrySave() {
+        if unsaved { commit(values) }
+    }
+
+    /// Əvvəlcə fayl, sonra yaddaş. Fayl yoxdursa (qovluq yaradıla bilməyib) və ya oxunmayıbsa yalnız yaddaş dəyişir.
+    private func commit(_ next: [String: String]) {
+        if !unreadable, let file = file {
+            if let data = try? JSONSerialization.data(withJSONObject: next, options: []), Storage.write(data, to: file) {
+                unsaved = false
+            } else {
+                unsaved = true
+            }
+        }
+        values = next
     }
 }
 
 /// Event növbəsi: yaddaşda saxlanır və fayla yazılır.
-/// Fayl hər dəyişiklikdə yox, qısa fasilə ilə yazılır; qəfil çökmədə son bir neçə saniyənin eventləri itə bilər.
+/// Fayl hər dəyişiklikdə yox, qısa fasilə ilə yazılır (`SmartBee` son dəyişiklikdən ən çox 2 saniyə sonra yazını
+/// təmin edir); qəfil çökmədə son bir-iki saniyənin eventləri itə bilər.
+///
+/// Bütün metodlar kilid altındadır: növbə SDK-nın öz axınında işlənir, amma tətbiq bağlananda (`willTerminate`)
+/// əsas axından da diskə yazılır və o an SDK axını şəbəkə sorğusu ilə məşğul ola bilər.
 final class FileQueue: EventQueue {
+    private let lock = NSLock()
     private var rows: [QueuedEvent] = []
     private var nextId: Int64 = 1
     private var dirty = false
     private var lastPersist = Date.distantPast
     private let file: URL?
+    /// Növbə bütöv yaddaşda saxlanır və bütöv yazılır, ona görə ümumi ölçüsü də məhdudlaşdırılır.
+    static let defaultMaxBytes = 5 * 1024 * 1024
+    private let maxBytes: Int
+    private var bytes = 0
+    /// Fayl var, amma oxunmadı: belə növbə diskə yazmır ki, göndərilməmiş eventlərin üstündən yazılmasın.
+    private(set) var unreadable = false
 
-    init(directory: URL? = nil) {
+    init(directory: URL? = nil, maxBytes: Int = FileQueue.defaultMaxBytes) {
         file = Storage.directory(directory)?.appendingPathComponent("queue.json")
+        self.maxBytes = maxBytes
         load()
     }
 
+    private static func size(_ row: QueuedEvent) -> Int {
+        return row.ctx.utf8.count + row.payload.utf8.count
+    }
+
+    private func append(ctx: String, payload: String) {
+        let row = QueuedEvent(id: nextId, ctx: ctx, payload: payload)
+        rows.append(row)
+        bytes += FileQueue.size(row)
+        nextId += 1
+    }
+
     private func load() {
-        guard let file = file, let data = try? Data(contentsOf: file),
+        guard let url = file else { return }
+        var loaded: Data?
+        switch Storage.read(url) {
+        case .missing:
+            break
+        case .unreadable:
+            unreadable = true
+        case .data(let data):
+            loaded = data
+        }
+        guard let data = loaded,
               let list = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [[String: Any]] else { return }
         for item in list {
             guard let ctx = item["ctx"] as? String, let payload = item["payload"] as? String else { continue }
-            rows.append(QueuedEvent(id: nextId, ctx: ctx, payload: payload))
-            nextId += 1
+            append(ctx: ctx, payload: payload)
         }
     }
 
     func add(ctx: String, payload: String) {
-        rows.append(QueuedEvent(id: nextId, ctx: ctx, payload: payload))
-        nextId += 1
+        lock.lock()
+        defer { lock.unlock() }
+        append(ctx: ctx, payload: payload)
         dirty = true
     }
 
-    func peek(_ limit: Int) -> [QueuedEvent] { return Array(rows.prefix(max(limit, 0))) }
+    func peek(_ limit: Int) -> [QueuedEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Array(rows.prefix(max(limit, 0)))
+    }
 
     func remove(_ ids: [Int64]) {
         if ids.isEmpty { return }
+        lock.lock()
+        defer { lock.unlock() }
         let set = Set(ids)
-        rows.removeAll { set.contains($0.id) }
+        var freed = 0
+        rows.removeAll { row in
+            if set.contains(row.id) {
+                freed += FileQueue.size(row)
+                return true
+            }
+            return false
+        }
+        bytes -= freed
         dirty = true
     }
 
-    var count: Int { return rows.count }
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return rows.count
+    }
 
+    /// Ən köhnə sətirləri ataraq növbəni həm say (`max`), həm də bayt həddinə endirir.
+    /// Bayt həddinə görə sonuncu sətir atılmır.
     func trim(_ max: Int) {
-        if rows.count > max, max >= 0 {
-            rows.removeFirst(rows.count - max)
+        lock.lock()
+        defer { lock.unlock() }
+        var drop = 0
+        var kept = bytes
+        if max >= 0, rows.count > max { drop = rows.count - max }
+        for index in 0..<drop { kept -= FileQueue.size(rows[index]) }
+        while kept > maxBytes, drop < rows.count - 1 {
+            kept -= FileQueue.size(rows[drop])
+            drop += 1
+        }
+        if drop > 0 {
+            rows.removeFirst(drop)
+            bytes = kept
             dirty = true
         }
     }
 
     func clear() {
+        lock.lock()
+        defer { lock.unlock() }
         if !rows.isEmpty {
             rows.removeAll()
+            bytes = 0
+            dirty = true
+        }
+    }
+
+    func update(_ change: (QueuedEvent) -> (ctx: String, payload: String)?) {
+        lock.lock()
+        defer { lock.unlock() }
+        var changed = false
+        var total = 0
+        var next: [QueuedEvent] = []
+        next.reserveCapacity(rows.count)
+        for row in rows {
+            var kept = row
+            if let fresh = change(row) {
+                kept = QueuedEvent(id: row.id, ctx: fresh.ctx, payload: fresh.payload)
+                changed = true
+            }
+            total += FileQueue.size(kept)
+            next.append(kept)
+        }
+        if changed {
+            rows = next
+            bytes = total
             dirty = true
         }
     }
 
     /// Dəyişiklik varsa və son yazıdan ən azı 2 saniyə keçibsə fayla yazır.
-    func persistSoon() {
-        if dirty, Date().timeIntervalSince(lastPersist) >= 2 { persist() }
+    /// Yazılmamış dəyişiklik qalırsa false qaytarır: çağıran sonrakı yazını planlaşdırmalıdır.
+    @discardableResult
+    func persistSoon() -> Bool {
+        lock.lock()
+        let pending = dirty
+        let due = Date().timeIntervalSince(lastPersist) >= 2
+        lock.unlock()
+        if !pending { return true }
+        if !due { return false }
+        persist()
+        return true
     }
 
-    /// Dəyişiklik varsa dərhal fayla yazır (atomik).
-    func persist() {
-        guard dirty, let file = file else { return }
+    /// Dəyişiklik varsa dərhal fayla yazır (atomik). Diskdəki fayl növbənin indiki vəziyyətini əks etdirirsə
+    /// (yazılası dəyişiklik qalmayıbsa və ya növbənin faylı ümumiyyətlə yoxdursa) true qaytarır.
+    @discardableResult
+    func persist() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if !dirty { return true }
+        if unreadable { return false }
+        guard let file = file else { return true }
         let list: [[String: Any]] = rows.map { ["ctx": $0.ctx, "payload": $0.payload] }
-        guard JSONSerialization.isValidJSONObject(list), let data = try? JSONSerialization.data(withJSONObject: list, options: []) else { return }
+        guard JSONSerialization.isValidJSONObject(list), let data = try? JSONSerialization.data(withJSONObject: list, options: []) else { return false }
         // Disk dolu və ya əlçatmazdırsa növbə yaddaşda qalır, sonra yenidən cəhd edilir.
         if Storage.write(data, to: file) {
             dirty = false
             lastPersist = Date()
+            return true
         }
+        return false
+    }
+}
+
+/// Razılıq rəddinin nişanı: kiçik fayl (`consent.mark`), çağıran axında dərhal yazılır.
+///
+/// `setConsent` və təkrar `initialize` rəddi SDK növbəsində icra olunur; növbə o an sinxron şəbəkə sorğusu ilə məşğul
+/// ola bilər və proses bu arada ölsə rədd diskə çatmazdı (köhnə növbə növbəti açılışda göndərilərdi). Ona görə rədd
+/// əvvəlcə burada, növbəni gözləmədən yazılır; `SmartBee` başlanğıcda nişanı `Core`-a ötürür (bax `ConsentMark`) və nüvə
+/// əsl razılığı və təmizlənmiş növbəni diskə yazandan sonra nişanı silir (`settle`).
+///
+/// Hər yazı nəsil nömrəsini artırır: `settle` yalnız öz nəsli hələ sonuncudursa silir, yəni icrası gözləyən daha yeni
+/// çağırışın nişanı köhnə çağırışla silinmir. Rəddən sonra gələn razılıq nişanın razılıq dəyərini yeniləyir (rədd
+/// bayraqları qalır), ona görə köhnəlmiş nişan sonrakı razılığı geri qaytarmır. Bütün metodlar kilid altındadır.
+final class ConsentTombstone {
+    private let lock = NSLock()
+    private let file: URL?
+    private var mark: ConsentMark?
+    private var generation = 0
+    /// Fayl var, amma oxunmadı (cihaz hələ kilidlidir): məzmunu məlum deyil, `reload` yenidən oxuyur.
+    private var unread = false
+
+    init(directory: URL? = nil) {
+        file = Storage.directory(directory)?.appendingPathComponent("consent.mark")
+        load()
+    }
+
+    /// Faylı oxuyur və yaddaşdakı nişanla birləşdirir. Yalnız `init`-dən və kilid altında çağırılır.
+    private func load() {
+        guard let url = file else { return }
+        switch Storage.read(url) {
+        case .missing:
+            unread = false
+        case .unreadable:
+            unread = true
+        case .data(let data):
+            unread = false
+            // Oxunan, amma təhlil olunmayan nişan ən sərt nişan sayılır.
+            let saved = String(data: data, encoding: .utf8).map { ConsentMark.parse($0) } ?? ConsentMark.strictest
+            if let current = mark {
+                mark = ConsentMark(wipe: saved.wipe || current.wipe, scrub: saved.scrub || current.scrub, consent: current.consent ?? saved.consent)
+            } else {
+                mark = saved
+            }
+        }
+    }
+
+    /// Yalnız kilid altında çağırılır. Oxunmamış faylın üstündən yazılmır (içindəki rədd itməsin).
+    private func save() {
+        guard !unread, let url = file, let current = mark else { return }
+        _ = Storage.write(Data(current.text.utf8), to: url)
+    }
+
+    /// Fayl var, amma hələ oxunmayıb: başlanğıc təxirə salınmalıdır.
+    var unreadable: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return unread
+    }
+
+    /// Əvvəl oxunmamış faylı yenidən oxuyur (cihazın kilidi açılandan sonra).
+    func reload() {
+        lock.lock()
+        defer { lock.unlock() }
+        if !unread { return }
+        load()
+        if !unread { save() }
+    }
+
+    /// Çağıran axında: rəddi dərhal diskə yazır və nəsil nömrəsini qaytarır (`settle` üçün). Nişan yoxdursa və
+    /// çağırış heç nəyi rədd etmirsə heç nə yazılmır.
+    func record(denyAnalytics: Bool, denyAds: Bool, consent: String?) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        if mark == nil, !denyAnalytics, !denyAds { return generation }
+        let base = mark ?? ConsentMark(wipe: false, scrub: false, consent: nil)
+        mark = base.adding(denyAnalytics: denyAnalytics, denyAds: denyAds, consent: consent)
+        generation += 1
+        save()
+        return generation
+    }
+
+    /// İndiki nişan (yoxdursa nil) və onun nəsil nömrəsi.
+    func current() -> (mark: ConsentMark?, generation: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (mark: mark, generation: generation)
+    }
+
+    /// Nüvə `token` nəslinə qədərki çağırışları icra edib və nəticəni diskə yazıb: daha yeni çağırış yoxdursa
+    /// nişan silinir.
+    func settle(_ token: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        if token != generation || mark == nil || unread { return }
+        if let url = file {
+            try? FileManager.default.removeItem(at: url)
+            // Fayl silinmədisə nişan qalır və sonra yenidən cəhd olunur.
+            if FileManager.default.fileExists(atPath: url.path) { return }
+        }
+        mark = nil
     }
 }
 
 /// Yönləndirmələri izləmir: toplu yalnız konfiqdəki ünvana göndərilir.
-final class RedirectBlocker: NSObject, URLSessionTaskDelegate {
+class RedirectBlocker: NSObject, URLSessionTaskDelegate {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -155,15 +430,130 @@ final class RedirectBlocker: NSObject, URLSessionTaskDelegate {
     }
 }
 
+/// Bir sorğunun cavabı: gövdə bütöv yaddaşa yığılmır, yalnız lazım olan qədəri saxlanır.
+///
+/// Uğurlu konfiq cavabından (`200`) ən çox `maxConfigBytes`, rədd cavabından ən çox `maxErrorBytes` saxlanır; başqa
+/// cavabların gövdəsi lazım deyil. Həddi aşan gövdə atılır (nəticədə gövdə olmur), cavabın ümumi ölçüsü
+/// `maxConfigBytes`-i keçəndə isə oxu dayandırılır: zərərli və ya səhv server cihazın yaddaşını doldura bilməz.
+final class ResponseJob {
+    private(set) var response: HTTPURLResponse?
+    private(set) var data = Data()
+    /// Gövdədən saxlanan ən böyük ölçü (bayt).
+    private(set) var keep = 0
+    private(set) var received = 0
+    /// Gövdə həddi aşdı və atıldı.
+    private(set) var overflow = false
+    /// Oxu bilərəkdən dayandırılıb: cavabın başlıqları yararlıdır, gövdəsi yox.
+    private(set) var stopped = false
+    /// Sorğu cavabsız bitdi (şəbəkə xətası).
+    var failed = false
+    let done = DispatchSemaphore(value: 0)
+
+    /// Status koduna görə gövdədən saxlanacaq ən böyük ölçü.
+    static func limit(status: Int) -> Int {
+        if status == 200 { return URLSessionTransport.maxConfigBytes }
+        if status < 200 || status > 399 { return URLSessionTransport.maxErrorBytes }
+        return 0
+    }
+
+    /// Cavabın başlıqları gəldi. `expected`: elan olunmuş gövdə ölçüsü (məlum deyilsə mənfi). Oxu davam etməlidirsə
+    /// true; elan olunmuş ölçü ümumi həddi aşırsa gövdə heç oxunmur.
+    func begin(_ http: HTTPURLResponse?, status: Int, expected: Int64) -> Bool {
+        response = http
+        keep = ResponseJob.limit(status: status)
+        if expected > Int64(URLSessionTransport.maxConfigBytes) {
+            overflow = true
+            stopped = true
+            return false
+        }
+        return true
+    }
+
+    /// Gövdənin növbəti hissəsi. Oxu davam etməlidirsə true.
+    func accept(_ chunk: Data) -> Bool {
+        received += chunk.count
+        if !overflow, received <= keep {
+            data.append(chunk)
+        } else {
+            overflow = true
+            data = Data()
+        }
+        if received > URLSessionTransport.maxConfigBytes {
+            stopped = true
+            return false
+        }
+        return true
+    }
+
+    /// Saxlanmış gövdə; həddi aşıbsa nil.
+    var body: Data? { return overflow ? nil : data }
+}
+
+/// Sessiyanın nümayəndəsi: yönləndirmələri bağlayır və cavabları hissə-hissə, məhdud ölçüdə oxuyur (bax `ResponseJob`).
+final class ResponseReader: RedirectBlocker, URLSessionDataDelegate {
+    private let lock = NSLock()
+    private var jobs: [Int: ResponseJob] = [:]
+
+    func register(_ job: ResponseJob, for task: URLSessionTask) {
+        lock.lock()
+        jobs[task.taskIdentifier] = job
+        lock.unlock()
+    }
+
+    /// Sorğunun işini siyahıdan çıxarır (vaxtı bitmiş sorğu üçün).
+    func forget(_ task: URLSessionTask) {
+        lock.lock()
+        jobs[task.taskIdentifier] = nil
+        lock.unlock()
+    }
+
+    private func find(_ task: URLSessionTask) -> ResponseJob? {
+        lock.lock()
+        defer { lock.unlock() }
+        return jobs[task.taskIdentifier]
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let job = find(dataTask), let http = response as? HTTPURLResponse else {
+            completionHandler(.cancel)
+            return
+        }
+        completionHandler(job.begin(http, status: http.statusCode, expected: response.expectedContentLength) ? .allow : .cancel)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard let job = find(dataTask) else { return }
+        if !job.accept(data) { dataTask.cancel() }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let job = find(task) else { return }
+        forget(task)
+        // Oxu bilərəkdən dayandırılıbsa «ləğv olundu» xətası gəlir, amma cavabın başlıqları yararlıdır.
+        if error != nil, !job.stopped { job.failed = true }
+        job.done.signal()
+    }
+}
+
 /// URLSession üzərində nəqliyyat. Yalnız HTTPS; sazlama rejimində lokal ünvanlara HTTP icazəlidir.
 final class URLSessionTransport: Transport {
     static let maxConfigBytes = 256 * 1024
+    /// Rədd cavabının gövdəsindən oxunan ən böyük hissə (`{"ok":false,"error":"…"}` üçün artıqlaması ilə bəsdir).
+    static let maxErrorBytes = 4096
 
     private let debug: Bool
     private let session: URLSession
+    private let reader: ResponseReader
 
     init(debug: Bool) {
         self.debug = debug
+        let reader = ResponseReader()
+        self.reader = reader
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
@@ -171,7 +561,7 @@ final class URLSessionTransport: Transport {
         config.httpShouldSetCookies = false
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: config, delegate: RedirectBlocker(), delegateQueue: nil)
+        session = URLSession(configuration: config, delegate: reader, delegateQueue: nil)
     }
 
     /// Yalnız HTTPS; sazlama rejimində lokal ünvanlara HTTP icazəlidir.
@@ -184,34 +574,50 @@ final class URLSessionTransport: Transport {
     private func request(_ address: String) -> URLRequest? {
         guard let url = URLSessionTransport.allowed(address, debug: debug) else { return nil }
         var request = URLRequest(url: url)
-        request.setValue("SmartBeePixel-iOS/" + sdkVersion, forHTTPHeaderField: "User-Agent")
+        request.setValue("SmartBeePixel-iOS/" + pixelSdkVersion, forHTTPHeaderField: "User-Agent")
         return request
     }
 
-    /// Növbə axınında sinxron icra olunur (əsas axında heç vaxt çağırılmır).
-    private func send(_ request: URLRequest) -> HttpResult {
-        let done = DispatchSemaphore(value: 0)
-        var result = HttpResult(status: -1)
-        let task = session.dataTask(with: request) { data, response, error in
-            defer { done.signal() }
-            guard error == nil, let http = response as? HTTPURLResponse else { return }
-            var body: String?
-            if http.statusCode == 200, let data = data, data.count <= URLSessionTransport.maxConfigBytes {
-                body = String(data: data, encoding: .utf8)
-            }
-            let retryAfter = (http.allHeaderFields["Retry-After"] as? String).flatMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
-            result = HttpResult(status: http.statusCode, body: body, etag: http.allHeaderFields["Etag"] as? String ?? http.allHeaderFields["ETag"] as? String, retryAfterSec: retryAfter)
+    /// Ünvan icazəli deyil (HTTPS deyil və ya yararsızdır): sorğu göndərilmir. Nəticə şəbəkə xətası kimidir, yəni
+    /// yanlış `endpoint` seçimi növbəni silmir.
+    private func blocked() -> HttpResult {
+        if debug { NSLog("[SmartBee] endpoint is not allowed (HTTPS only), nothing is sent") }
+        return HttpResult(status: -1)
+    }
+
+    /// Cavabı nəticəyə çevirir. Başlıq adları hərf registrinə həssas deyil (HTTP/2 onları kiçik hərflə verir).
+    static func result(_ http: HTTPURLResponse, _ data: Data?) -> HttpResult {
+        var body: String?
+        let code = http.statusCode
+        if code == 200, let data = data, data.count <= URLSessionTransport.maxConfigBytes {
+            body = String(data: data, encoding: .utf8)
+        } else if code < 200 || code > 399, let data = data, data.count <= URLSessionTransport.maxErrorBytes {
+            // Rədd cavabının gövdəsi, məhdud ölçüdə: `error` kodunu oxumaq üçün (PROTOCOL.md 5.6).
+            body = String(data: data, encoding: .utf8)
         }
+        let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
+        return HttpResult(status: http.statusCode, body: body, etag: http.value(forHTTPHeaderField: "ETag"), retryAfterSec: retryAfter)
+    }
+
+    /// Növbə axınında sinxron icra olunur (əsas axında heç vaxt çağırılmır). Cavab bütöv yaddaşa yığılmır:
+    /// `ResponseReader` onu hissə-hissə oxuyur və yalnız lazım olan qədərini saxlayır.
+    private func send(_ request: URLRequest) -> HttpResult {
+        let job = ResponseJob()
+        let task = session.dataTask(with: request)
+        reader.register(job, for: task)
         task.resume()
-        if done.wait(timeout: .now() + 35) == .timedOut {
+        if job.done.wait(timeout: .now() + 35) == .timedOut {
+            reader.forget(task)
             task.cancel()
             return HttpResult(status: -1)
         }
-        return result
+        // `done` siqnalından sonra işə yalnız bu axın toxunur.
+        guard !job.failed, let http = job.response else { return HttpResult(status: -1) }
+        return URLSessionTransport.result(http, job.body)
     }
 
     func post(url: String, json: String) -> HttpResult {
-        guard var request = request(url) else { return HttpResult(status: 400) }
+        guard var request = request(url) else { return blocked() }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(json.utf8)
@@ -219,7 +625,7 @@ final class URLSessionTransport: Transport {
     }
 
     func get(url: String, etag: String?) -> HttpResult {
-        guard var request = request(url) else { return HttpResult(status: 400) }
+        guard var request = request(url) else { return blocked() }
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let etag = etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
@@ -255,6 +661,59 @@ final class AppleEnv: Env {
         return ctx
     }
 
+    /// iOS / tvOS 14+-da izləmə App Tracking Transparency icazəsi tələb edir. Sistemə müraciət etmir.
+    func attRequired() -> Bool {
+        #if os(visionOS)
+        // visionOS-da da ATT var, amma SDK onun vəziyyətini oxumur: icazə məlum olmadığından toplu heç vaxt
+        // reklama yararlı sayılmır.
+        return true
+        #elseif canImport(AdSupport) && (os(iOS) || os(tvOS)) && canImport(AppTrackingTransparency)
+        if #available(iOS 14, tvOS 14, *) { return true }
+        return false
+        #else
+        return false
+        #endif
+    }
+
+    /// ATT vəziyyətini və (icazə varsa) IDFA-nı sistemdən oxuyur. Heç nə keşlənmir: vəziyyət dəyişəndə
+    /// köhnə identifikator qalmır. İcazə pəncərəsi burada heç vaxt istənilmir, onu tətbiq özü göstərir.
+    /// SDK növbəsindən çağırılır; hər iki sistem çağırışı əsas axından kənarda işlədilə bilər.
+    func advertising(includeId: Bool) -> AdvertisingInfo {
+        #if canImport(AdSupport) && (os(iOS) || os(tvOS))
+        var info = AdvertisingInfo()
+        var allowed = false
+        #if canImport(AppTrackingTransparency)
+        if #available(iOS 14, tvOS 14, *) {
+            switch ATTrackingManager.trackingAuthorizationStatus {
+            case .authorized:
+                info.status = "authorized"
+                allowed = true
+            case .denied:
+                info.status = "denied"
+            case .restricted:
+                info.status = "restricted"
+            case .notDetermined:
+                info.status = "not_determined"
+            @unknown default:
+                // Tanınmayan yeni vəziyyət: icazə verilməmiş sayılır.
+                break
+            }
+        } else {
+            // iOS 13: ATT yoxdur, «Reklam izləməsini məhdudlaşdır» ayarı əsas götürülür.
+            allowed = ASIdentifierManager.shared().isAdvertisingTrackingEnabled
+        }
+        #else
+        allowed = ASIdentifierManager.shared().isAdvertisingTrackingEnabled
+        #endif
+        if includeId, allowed {
+            info.idfa = ASIdentifierManager.shared().advertisingIdentifier.uuidString
+        }
+        return info
+        #else
+        return AdvertisingInfo()
+        #endif
+    }
+
     /// Dəyişməyən tətbiq və cihaz məlumatı; istənilən axında oxuna bilər.
     static func captureBase() -> [String: Any] {
         var ctx: [String: Any] = [:]
@@ -265,28 +724,66 @@ final class AppleEnv: Env {
         ctx["app"] = app
 
         let version = ProcessInfo.processInfo.operatingSystemVersion
-        #if os(iOS)
-        let osName = "iOS"
-        #elseif os(tvOS)
-        let osName = "tvOS"
-        #else
-        let osName = "macOS"
-        #endif
         ctx["os"] = ["name": osName, "version": "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"]
-        ctx["device"] = ["manufacturer": "Apple", "model": machine(), "type": "phone"]
+        ctx["device"] = ["manufacturer": "Apple", "model": machine(), "type": deviceType]
         return ctx
     }
 
+    /// `ctx.os.name`: SDK-nın yığıldığı platforma. Mac Catalyst tətbiqi iOS SDK-sı ilə yığılır və `os(iOS)` qoluna
+    /// düşür. `os(visionOS)` şərtini köhnə kompilyatorlar (Swift 5.9-dan əvvəl) tanımır: xəbərdarlıq verib onu yalan
+    /// sayırlar, yəni kod yığılır (bu faylda `attRequired` də eyni şərti işlədir).
+    static var osName: String {
+        #if os(iOS)
+        return "iOS"
+        #elseif os(tvOS)
+        return "tvOS"
+        #elseif os(watchOS)
+        return "watchOS"
+        #elseif os(macOS)
+        return "macOS"
+        #elseif os(visionOS)
+        return "visionOS"
+        #else
+        return "unknown"
+        #endif
+    }
+
+    /// `ctx.device.type` üçün platformanın susmaya görə dəyəri (sxemdə ən çox 16 simvolluq sərbəst mətn). iPad
+    /// `captureUI`-da `tablet` olur.
+    static var deviceType: String {
+        #if os(macOS) || targetEnvironment(macCatalyst)
+        return "desktop"
+        #elseif os(tvOS)
+        return "tv"
+        #elseif os(watchOS)
+        return "watch"
+        #elseif os(visionOS)
+        return "headset"
+        #else
+        return "phone"
+        #endif
+    }
+
     /// UIKit-dən oxunan sahələr. Yalnız əsas axında çağırılmalıdır.
-    static func captureUI() -> [String: Any] {
+    /// `includeVendorId = false` (`collectAdvertisingId` söndürülüb): satıcı identifikatoru (IDFV) oxunmur.
+    static func captureUI(includeVendorId: Bool = true) -> [String: Any] {
         var ctx: [String: Any] = [:]
         #if canImport(UIKit) && !os(watchOS)
         let device = UIDevice.current
-        ctx["device"] = ["manufacturer": "Apple", "model": machine(), "type": device.userInterfaceIdiom == .pad ? "tablet" : "phone"]
+        // Planşet yalnız iOS-da ayırd edilir; tvOS, visionOS və Mac Catalyst platformanın öz dəyərini saxlayır.
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+        let type = device.userInterfaceIdiom == .pad ? "tablet" : AppleEnv.deviceType
+        #else
+        let type = AppleEnv.deviceType
+        #endif
+        ctx["device"] = ["manufacturer": "Apple", "model": machine(), "type": type]
+        // visionOS-da `UIScreen.main` yoxdur: ekran ölçüsü göndərilmir.
+        #if !os(visionOS)
         let bounds = UIScreen.main.nativeBounds
         ctx["screen"] = ["w": Int(bounds.width), "h": Int(bounds.height), "density": Double(UIScreen.main.scale)]
-        // Satıcı identifikatoru; reklam razılığı yoxdursa Core onu göndərmir.
-        if let idfv = device.identifierForVendor?.uuidString { ctx["ids"] = ["idfv": idfv] }
+        #endif
+        // Satıcı identifikatoru; toplu reklama yararlı deyilsə (razılıq və ya izləmə icazəsi yoxdur) Core onu göndərmir.
+        if includeVendorId, let idfv = device.identifierForVendor?.uuidString { ctx["ids"] = ["idfv": idfv] }
         #endif
         return ctx
     }

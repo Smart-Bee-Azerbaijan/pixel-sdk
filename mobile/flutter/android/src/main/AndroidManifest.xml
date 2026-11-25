@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- For the advertising id (GAID): apps targeting Android 13+ receive an all-zero id without this permission.
+         An app that does not want it can remove it in its own manifest with tools:node="remove" (see README.md). -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 </manifest>

@@ -14,19 +14,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-private const val KEY = "demo0andr1"
+internal const val KEY = "demo0andr1"
 
 /** Android-in JSONObject sinifində keySet yoxdur. */
-private fun JSONObject.keySet(): Set<String> = keys().asSequence().toSet()
+internal fun JSONObject.keySet(): Set<String> = keys().asSequence().toSet()
 
-private class FakeStore : Store {
+internal class FakeStore : Store {
     val map = HashMap<String, String>()
     override fun get(key: String): String? = map[key]
     override fun put(key: String, value: String) { map[key] = value }
     override fun remove(key: String) { map.remove(key) }
 }
 
-private class FakeQueue : EventQueue {
+internal class FakeQueue : EventQueue {
     val rows = ArrayList<QueuedEvent>()
     private var nextId = 1L
     override fun add(ctx: String, payload: String) { rows.add(QueuedEvent(nextId++, ctx, payload)) }
@@ -35,9 +35,33 @@ private class FakeQueue : EventQueue {
     override fun size(): Int = rows.size
     override fun trim(max: Int) { while (rows.size > max) rows.removeAt(0) }
     override fun clear() { rows.clear() }
+
+    /** Yerində dəyişdirilmiş sətirlərin sayı (bütün çağırışlar üzrə). */
+    var rewritten = 0
+    override fun rewrite(transform: (QueuedEvent) -> QueuedEvent?) {
+        for (i in rows.indices) transform(rows[i])?.let {
+            rows[i] = it
+            rewritten++
+        }
+    }
 }
 
-private class FakeTransport : Transport {
+/** Yaddaşdakı nişan faylı: `text` prosesin ölümündən sonra diskdə qalan məzmundur. */
+internal class FakeTombFile(var text: String? = null) : TombFile {
+    var writes = 0
+    var failDelete = false
+    override fun read(): String? = text
+    override fun write(text: String) {
+        this.text = text
+        writes++
+    }
+    override fun delete() {
+        if (failDelete) throw IllegalStateException("delete failed")
+        text = null
+    }
+}
+
+internal class FakeTransport : Transport {
     val posts = ArrayList<JSONObject>()
     val urls = ArrayList<String>()
     var status = 200
@@ -49,18 +73,33 @@ private class FakeTransport : Transport {
     var lastEtag: String? = null
     var throwOnPost = false
 
+    /** Rədd cavabının gövdəsi (toplu və konfiq sorğuları üçün). */
+    var postError: String? = null
+    var configError: String? = null
+
+    /** Verilibsə cavab statusunu toplunun özünə görə təyin edir; rədd olunan toplular `posts`-a düşmür. */
+    var respond: ((JSONObject) -> Int)? = null
+    val bodies = ArrayList<String>()
+
     override fun post(url: String, json: String): HttpResult {
         if (throwOnPost) throw IllegalStateException("network down")
         urls.add(url)
-        posts.add(JSONObject(json))
-        return HttpResult(status, retryAfterSec = retryAfter)
+        bodies.add(json)
+        val batch = JSONObject(json)
+        val code = respond?.invoke(batch) ?: status
+        if (respond == null || code in 200..299) posts.add(batch)
+        return HttpResult(code, if (code in 200..299) null else postError, retryAfterSec = retryAfter)
     }
 
+    /** Konfiq sorğusu gələn anda çağırılır. */
+    var onConfig: (() -> Unit)? = null
+
     override fun get(url: String, etag: String?): HttpResult {
+        onConfig?.invoke()
         configCalls++
         lastEtag = etag
         urls.add(url)
-        return HttpResult(configStatus, if (configStatus == 200) configBody else null, configEtag)
+        return HttpResult(configStatus, if (configStatus == 200) configBody else configError, configEtag)
     }
 
     val events: List<JSONObject>
@@ -68,16 +107,53 @@ private class FakeTransport : Transport {
     val names: List<String> get() = events.map { if (it.getString("type") == "track") it.getString("name") else it.getString("type") }
 }
 
-private class FakeEnv : Env {
+internal class FakeEnv : Env {
     var time = 1_795_590_000_000L
     var version = "1.2.3"
     var build = "45"
+    var firstInstall = true
     private var counter = 0
     val logs = ArrayList<String>()
+
+    /** Reklam ID-sinin mənbəyi; null: tətbiqdə Google kitabxanası yoxdur. */
+    var adLookup: AdIdLookup? = null
+
+    /** true: bloklayan iş dərhal icra olunmur, test [runOffloaded] çağırana qədər gözləyir (yavaş oxuma). */
+    var deferOffload = false
+    val offloaded = ArrayList<Pair<() -> Unit, () -> Unit>>()
+
+    override fun adIdLookup(): AdIdLookup? = adLookup
+
+    override fun offload(work: () -> Unit, done: () -> Unit) {
+        if (deferOffload) offloaded.add(work to done) else super.offload(work, done)
+    }
+
+    /** Gözləyən bloklayan işləri bitirir: əvvəl işin özü, sonra nüvəyə qayıdış. */
+    fun runOffloaded() {
+        val waiting = ArrayList(offloaded)
+        offloaded.clear()
+        for ((work, done) in waiting) {
+            work()
+            done()
+        }
+    }
+
+    /** Fasilələrin kənarlaşması: 0.0 ən qısa fasiləni verir (Retry-After dəqiq, backoff -20%). */
+    var randomValue = 0.0
+    override fun random(): Double = randomValue
+
+    /** `later` ilə təxirə salınmış işlər: (gecikmə, iş). */
+    val scheduled = ArrayList<Pair<Long, () -> Unit>>()
+    override fun later(delayMs: Long, work: () -> Unit) { scheduled.add(delayMs to work) }
+
     override fun now(): Long = time
     override fun uuid(): String = "00000000-0000-4000-8000-" + (++counter).toString().padStart(12, '0')
     override fun log(message: String) { logs.add(message) }
-    override fun deviceContext(): JSONObject = JSONObject()
+    override fun firstInstall(): Boolean = firstInstall
+    /** Verilibsə cihaz konteksti buradan götürülür (yararsız / həddən uzun dəyərlərin sınağı üçün). */
+    var context: (() -> JSONObject)? = null
+
+    override fun deviceContext(): JSONObject = context?.invoke() ?: JSONObject()
         .put("locale", "az-AZ").put("tz", "Asia/Baku")
         .put("screen", JSONObject().put("w", 1080).put("h", 2400).put("density", 2.75))
         .put("app", JSONObject().put("id", "az.smartbee.demo").put("version", version).put("build", build))
@@ -85,13 +161,26 @@ private class FakeEnv : Env {
         .put("device", JSONObject().put("manufacturer", "Google").put("model", "Pixel 8").put("type", "phone"))
 }
 
-private class Rig(options: SmartBeeOptions = SmartBeeOptions(debug = true)) {
-    val store = FakeStore()
+/**
+ * Susmaya görə konfiq artıq bir dəfə alınıb keşlənmiş tətbiqi təqlid edir.
+ * `fresh = true`: ilk işə düşmə, konfiq hələ heç vaxt alınmayıb.
+ */
+internal class Rig(options: SmartBeeOptions = opts(debug = true), fresh: Boolean = false) {
+    val store = FakeStore().also {
+        if (!fresh) {
+            it.map[Core.K_BINDING] = Core.binding(KEY, options.endpoint)
+            it.map[Core.K_CONFIG] = "{\"enabled\":true}"
+        }
+    }
     val queue = FakeQueue()
     val transport = FakeTransport()
     val env = FakeEnv()
+    val gate = ConsentGate()
     var options = options
-    fun core(): Core = Core(KEY, options, store, queue, transport, env).also { it.start() }
+
+    /** Verilibsə nüvə başlanğıcda bu nişanı icra edir. */
+    var tombstone: ConsentTombstone? = null
+    fun core(): Core = Core(KEY, options, store, queue, transport, env, gate, tombstone).also { it.start() }
 }
 
 class CoreTest {
@@ -259,7 +348,7 @@ class CoreTest {
 
     @Test
     fun withoutAnalyticsConsentNothingIsSentOrStored() {
-        val rig = Rig(SmartBeeOptions(consent = Consent(analytics = false, ads = false)))
+        val rig = Rig(opts(consent = SmartBeeConsent(analytics = false, ads = false)))
         val core = rig.core()
         core.track("Lead", null, null)
         core.identify("user-1", null)
@@ -376,6 +465,7 @@ class CoreTest {
         val core = rig.core()
         core.track("Lead", null, null)
         rig.transport.status = 403
+        rig.transport.postError = """{"ok":false,"error":"app_not_allowed"}"""
         core.flush(force = true)
         assertEquals(0, rig.queue.size())
         assertEquals(1, rig.transport.posts.size)
@@ -429,12 +519,12 @@ class CoreTest {
     @Test
     fun maxBatchTriggersAutomaticFlush() {
         val rig = Rig()
-        rig.store.put(Core.K_CONFIG, """{"enabled":true,"flush":{"max_batch":5}}""")
+        rig.store.put(Core.K_CONFIG, """{"enabled":true,"flush":{"max_batch":10}}""")
         val core = rig.core()
         rig.transport.posts.clear()
-        for (i in 0 until 12) core.track("Lead", null, null)
+        for (i in 0 until 25) core.track("Lead", null, null)
         assertTrue(rig.transport.posts.isNotEmpty())
-        rig.transport.posts.forEach { assertTrue(it.getJSONArray("events").length() <= 5) }
+        rig.transport.posts.forEach { assertTrue(it.getJSONArray("events").length() <= 10) }
     }
 
     @Test
@@ -476,11 +566,16 @@ class CoreTest {
         rig.transport.configStatus = -1
         core.refreshConfig()
         assertTrue(core.config.enabled)
+        // Gövdəsiz 404 (ingress, CDN) açarı söndürmür.
         rig.transport.configStatus = 404
         core.refreshConfig(force = true)
-        assertFalse(core.config.enabled)
+        assertFalse(core.paused)
+        rig.transport.configError = """{"ok":false,"error":"unknown_key"}"""
+        core.refreshConfig(force = true)
+        assertTrue(core.paused)
+        // Söndürülmüş açarla yeni event yığılmır (növbə isə silinmir).
         core.track("Lead", null, null)
-        assertEquals(0, rig.queue.size())
+        assertFalse(rig.queue.rows.any { it.payload.contains("Lead") })
     }
 
     @Test
@@ -525,7 +620,7 @@ class CoreTest {
 
     @Test
     fun autoEventsCanBeDisabledLocallyAndRemotely() {
-        val local = Rig(SmartBeeOptions(autoEvents = false))
+        val local = Rig(opts(autoEvents = false))
         val a = local.core()
         a.onForeground()
         a.screen("Home", null, Core.ORIGIN_AUTO)
@@ -543,7 +638,8 @@ class CoreTest {
         b.track("Lead", null, null)
         b.flush(force = true)
         assertEquals(listOf("SessionStart", "Lead"), remote.transport.names)
-        assertEquals("Home", remote.transport.events.last().getJSONObject("screen").getString("name"))
+        // Söndürülmüş avtomatik ekranın adı (Activity sinfi) başqa eventlərə də yazılmır.
+        assertFalse(remote.transport.events.last().has("screen"))
     }
 
     @Test
@@ -564,7 +660,7 @@ class CoreTest {
 
     @Test
     fun wrapperIsReported() {
-        val rig = Rig(SmartBeeOptions(wrapper = "flutter", wrapperVersion = "1.0.0"))
+        val rig = Rig(opts(wrapper = "flutter", wrapperVersion = "1.0.0"))
         val core = rig.core()
         core.flush(force = true)
         val sdk = rig.transport.posts[0].getJSONObject("sdk")
@@ -575,7 +671,7 @@ class CoreTest {
 
     @Test
     fun customEndpointIsUsed() {
-        val rig = Rig(SmartBeeOptions(endpoint = "https://proxy.example.com/"))
+        val rig = Rig(opts(endpoint = "https://proxy.example.com/"))
         val core = rig.core()
         core.flush(force = true)
         assertEquals("https://proxy.example.com/v1/e", rig.transport.urls.last())
@@ -589,7 +685,7 @@ class CoreTest {
         assertEquals(1.0, c.sample, 0.0)
         assertEquals(60_000L, c.ttlMs)
         assertEquals(100, c.maxBatch)
-        assertEquals(1000L, c.flushIntervalMs)
+        assertEquals(10_000L, c.flushIntervalMs)
         assertEquals(setOf("A"), c.blockedEvents)
         assertFalse(c.auto("screens"))
         assertTrue(c.auto("lifecycle"))
@@ -604,7 +700,7 @@ class CoreTest {
             val cleaned = Util.cleanObject(mapOf("PIN" to "1", "EMAIL" to "a@b.az", "FIN" to "x", "TITLE" to "ok"))!!
             assertEquals(setOf("TITLE"), cleaned.keySet())
             assertEquals("https://a.az/p?I=1", Util.cleanUrl("https://a.az/p?PIN=9&ID_TOKEN=z&API_KEY=k&I=1", setOf("pin")))
-            assertEquals("farid.i@example.com", Util.normalizeEmail(" Farid.I@EXAMPLE.COM "))
+            assertEquals("user.i@example.com", Util.normalizeEmail(" User.I@EXAMPLE.COM "))
             assertEquals("2026-11-25T07:00:05.120Z", Util.iso(1_795_590_005_120L))
             assertEquals(64, Util.sha256("İstanbul").length)
         } finally {
@@ -619,7 +715,7 @@ class CoreTest {
         assertEquals("https://a.az/p?x=1", Util.cleanUrl("https://a.az/p?x=1&sid=9", setOf("sid")))
         assertNull(Util.campaignOf("https://a.az/p?x=1"))
         // Audit: veb tracker ilə eyni təmizləmə qaydaları.
-        assertEquals("myapp://u/[redacted]/orders?ref=[redacted]&x=1", Util.cleanUrl("myapp://u/Farid.Test@Example.com/orders?ref=a%40b.az&x=1&refresh_token=zz&API_KEY=k"))
+        assertEquals("myapp://u/[redacted]/orders?ref=[redacted]&x=1", Util.cleanUrl("myapp://u/User.Test@Example.com/orders?ref=a%40b.az&x=1&refresh_token=zz&API_KEY=k"))
         assertEquals("https://shop.az/p", Util.cleanUrl("https://user:pass@shop.az/p?client_secret=1&otp=2"))
         assertEquals("https://mail.shop.az/x", Util.cleanUrl("https://mail.shop.az/x#frag"))
         assertEquals(JSONArray(listOf(1L, "a")).toString(), (Util.clean(arrayOf(1, "a"), 2) as JSONArray).toString())

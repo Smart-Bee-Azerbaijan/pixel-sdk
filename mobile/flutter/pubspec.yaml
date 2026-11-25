@@ -5,8 +5,8 @@ homepage: https://c.cdnsb.net/docs
 repository: https://github.com/Smart-Bee-Azerbaijan/pixel-sdk/tree/main/mobile/flutter
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
-  flutter: ">=3.19.0"
+  sdk: ">=3.14.0 <4.0.0"
+  flutter: ">=3.50.0"
 
 dependencies:
   flutter:

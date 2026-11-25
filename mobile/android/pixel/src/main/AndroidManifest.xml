@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Reklam ID-si (GAID) üçün: Android 13+ hədəfli tətbiqlərdə bu icazə olmadan ID sıfırlardan ibarət gəlir.
+         İstəməyən tətbiq öz manifestində tools:node="remove" ilə çıxara bilər (README.md). -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 </manifest>

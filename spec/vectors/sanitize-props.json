@@ -1,0 +1,2198 @@
+{
+  "description": "props (kind: props, track), traits (kind: traits, identify) və ekran adı / səhifə başlığı (kind: label; giriş və expected mətndir) təmizləməsi. expected: göndərilən props / traits obyekti (hash sahələri daxil), boşdursa null. Hər SDK eyni nəticəni almalıdır.",
+  "cases": [
+    {
+      "name": "exact forbidden keys with string values",
+      "kind": "props",
+      "input": {
+        "email": "x",
+        "phone": "x",
+        "password": "x",
+        "pass": "x",
+        "token": "x",
+        "card": "x",
+        "card_number": "x",
+        "cvv": "x",
+        "pin": "x",
+        "fin": "x",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "exact forbidden keys are dropped even with boolean and null values",
+      "kind": "props",
+      "input": {
+        "email": true,
+        "phone": false,
+        "password": null,
+        "pass": true,
+        "token": false,
+        "card": null,
+        "card_number": true,
+        "cvv": false,
+        "pin": null,
+        "fin": true,
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "exact forbidden keys ignore case",
+      "kind": "props",
+      "input": {
+        "Email": "x",
+        "PHONE": "x",
+        "Password": "x",
+        "PIN": 1,
+        "Card": "x",
+        "CARD_NUMBER": "x",
+        "Fin": "x",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "sha256 suffix keeps the key",
+      "kind": "props",
+      "input": {
+        "email_sha256": "aa",
+        "phoneSha256": "bb",
+        "EMAIL_SHA256": "cc",
+        "user_email_sha256": "dd",
+        "token_sha256": "ee",
+        "sha256": "ff",
+        "email_sha_256": "gg",
+        "email_sha256_hex": "hh",
+        "email_sha256x": true
+      },
+      "expected": {
+        "sha256": "ff",
+        "email_sha256x": true
+      }
+    },
+    {
+      "name": "secret substrings",
+      "kind": "props",
+      "input": {
+        "passphrase": "m",
+        "pass_phrase": "n",
+        "passport": "o",
+        "passportNo": "p",
+        "passport_country": "AZ",
+        "passcode": "q",
+        "userPasscode": "r",
+        "password_hint": "a",
+        "userPassword": "b",
+        "passwd": "c",
+        "db_pwd": "d",
+        "client_secret": "e",
+        "secrets": "f",
+        "cvv2": "g",
+        "card_cvc": "h",
+        "iban": "i",
+        "ibanNumber": "j",
+        "cardnumber": "k",
+        "creditcardnumber": "l",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "secret whole words",
+      "kind": "props",
+      "input": {
+        "user_pass": "a",
+        "access_token": "b",
+        "accessToken": "c",
+        "tokenId": "d",
+        "user_pin": "e",
+        "pinCode": "f",
+        "fin_code": "g",
+        "otp": "h",
+        "smsOtp": "i",
+        "jwt": "j",
+        "id_jwt": "k",
+        "ssn": "l",
+        "user_ssn": "m",
+        "keep": 1
+      },
+      "expected": {
+        "tokenId": "d",
+        "keep": 1
+      }
+    },
+    {
+      "name": "secret word lookalikes are kept",
+      "kind": "props",
+      "input": {
+        "tokens": 1,
+        "tokenized": true,
+        "pinned": true,
+        "final": 1,
+        "finish": "x",
+        "passenger": 2,
+        "bypass": true,
+        "compass": "n",
+        "spin": 3,
+        "otps": 4,
+        "jwts": 5,
+        "session": "s1",
+        "auth": "a",
+        "key": "k",
+        "code": "c",
+        "hash": "h"
+      },
+      "expected": {
+        "tokens": 1,
+        "tokenized": true,
+        "pinned": true,
+        "final": 1,
+        "finish": "x",
+        "passenger": 2,
+        "bypass": true,
+        "compass": "n",
+        "spin": 3,
+        "otps": 4,
+        "jwts": 5,
+        "key": "k",
+        "code": "c",
+        "hash": "h"
+      }
+    },
+    {
+      "name": "card followed by a card detail word",
+      "kind": "props",
+      "input": {
+        "card_number": "x",
+        "card_num": "x",
+        "card_no": "x",
+        "card_holder": "x",
+        "card_exp": "x",
+        "card_expiry": "x",
+        "card_cvv": "x",
+        "card_cvc": "x",
+        "cardHolder": "x",
+        "card-exp": "x",
+        "CardNo": "x",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "card with other words is kept",
+      "kind": "props",
+      "input": {
+        "card_type": "visa",
+        "card_brand": "mc",
+        "cardType": "visa",
+        "card_last4": "1111",
+        "cards": 2,
+        "cardholder": "x",
+        "discount_card": true,
+        "card_number_masked": "x",
+        "number_card": 1,
+        "gift_card_code": "x",
+        "card_expires": "x"
+      },
+      "expected": {
+        "card_type": "visa",
+        "card_brand": "mc",
+        "cardType": "visa",
+        "card_last4": "1111",
+        "cards": 2,
+        "discount_card": true,
+        "gift_card_code": "x",
+        "card_expires": "x"
+      }
+    },
+    {
+      "name": "mail-like keys with non-flag values are dropped",
+      "kind": "props",
+      "input": {
+        "user_email": "a@b.az",
+        "contactEmail": "x",
+        "Mail": "x",
+        "mailing_list": 5,
+        "gmail": "x",
+        "emails": [
+          "a"
+        ],
+        "email_address": {
+          "a": 1
+        },
+        "e-mail": "x",
+        "keep": 1
+      },
+      "expected": {
+        "mailing_list": 5,
+        "keep": 1
+      }
+    },
+    {
+      "name": "mail-like keys with boolean or null values are kept",
+      "kind": "props",
+      "input": {
+        "email_verified": true,
+        "emailOptIn": false,
+        "has_email": true,
+        "mail_sent": null,
+        "newsletter_mail": false
+      },
+      "expected": {
+        "email_verified": true,
+        "emailOptIn": false,
+        "has_email": true,
+        "mail_sent": null,
+        "newsletter_mail": false
+      }
+    },
+    {
+      "name": "phone-like keys with non-flag values are dropped",
+      "kind": "props",
+      "input": {
+        "phone_number": "1",
+        "phoneNumber": 2,
+        "telephone": "3",
+        "cellphone": "4",
+        "cell_phone": "5",
+        "tel": "6",
+        "msisdn": "7",
+        "mobile": "8",
+        "gsm": "9",
+        "user_tel": "10",
+        "mobile_app": "ios",
+        "phones": [
+          "1"
+        ],
+        "keep": 1
+      },
+      "expected": {
+        "phoneNumber": 2,
+        "mobile_app": "ios",
+        "keep": 1
+      }
+    },
+    {
+      "name": "phone-like keys with boolean or null values are kept",
+      "kind": "props",
+      "input": {
+        "phone_verified": true,
+        "is_mobile": false,
+        "has_phone": null,
+        "mobile": true,
+        "tel": false
+      },
+      "expected": {
+        "phone_verified": true,
+        "is_mobile": false,
+        "has_phone": null,
+        "mobile": true,
+        "tel": false
+      }
+    },
+    {
+      "name": "phone lookalikes are kept",
+      "kind": "props",
+      "input": {
+        "hotel": "h",
+        "smartphone": "x",
+        "iphone": "y",
+        "headphones": 2,
+        "microphone": "m",
+        "mobility": "x",
+        "automobile": "a",
+        "telegram": "t",
+        "hotel_name": "n",
+        "gsmx": 1
+      },
+      "expected": {
+        "hotel": "h",
+        "smartphone": "x",
+        "iphone": "y",
+        "headphones": 2,
+        "microphone": "m",
+        "mobility": "x",
+        "automobile": "a",
+        "telegram": "t",
+        "hotel_name": "n",
+        "gsmx": 1
+      }
+    },
+    {
+      "name": "key names: camelCase, digits, separators",
+      "kind": "props",
+      "input": {
+        "userEMail": "x",
+        "user.email": "x",
+        "user email": "x",
+        "user[email]": "x",
+        "email2": "x",
+        "2phone": "x",
+        "SMSPin": "x",
+        "PINCode": "x",
+        "APIToken": "x",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "key names: Azerbaijani letters are folded",
+      "kind": "props",
+      "input": {
+        "e-po\u00e7t": "a",
+        "\u015fifr\u0259": "b",
+        "telefon": "c",
+        "p\u0131n": "d",
+        "P\u0130N": "e",
+        "\u212aey": "f",
+        "toke\u0144": "g",
+        "emai\u0307l": "h"
+      },
+      "expected": {
+        "\u212aey": "f",
+        "toke\u0144": "g",
+        "emai\u0307l": "h"
+      }
+    },
+    {
+      "name": "key names: percent sequences are decoded for matching",
+      "kind": "props",
+      "input": {
+        "e%6Dail_x": "x",
+        "user%5Fpin": "x",
+        "a%zzmail": "x",
+        "%FFpin": "x",
+        "keep": 1
+      },
+      "expected": {
+        "%FFpin": "x",
+        "keep": 1
+      }
+    },
+    {
+      "name": "key names: NUL is removed before matching",
+      "kind": "props",
+      "input": {
+        "k\u0000ey": 1,
+        "em\u0000ail": "a@b.az",
+        "p\u0000in": 2,
+        "to\u0000ken_x": 3
+      },
+      "expected": {
+        "key": 1,
+        "token_x": 3
+      }
+    },
+    {
+      "name": "key names: __proto__ is dropped, other odd names are kept",
+      "kind": "props",
+      "input": {
+        "0": 6,
+        "__proto__": 1,
+        "constructor": 2,
+        "toString": 3,
+        "": 4,
+        " ": 5,
+        "__proto__x": 7
+      },
+      "expected": {
+        "0": 6,
+        "constructor": 2,
+        "toString": 3,
+        "": 4,
+        " ": 5,
+        "__proto__x": 7
+      }
+    },
+    {
+      "name": "string values: e-mail-shaped parts are redacted",
+      "kind": "props",
+      "input": {
+        "note": "write to User.Test@Example.COM please",
+        "link": "https://shop.az/u/a@b.az?x=c%40d.org&y=1",
+        "handle": "@user",
+        "frac": "a@b",
+        "list": [
+          "x@y.io",
+          "plain"
+        ],
+        "nested": {
+          "text": "a b@c.de e"
+        }
+      },
+      "expected": {
+        "note": "write to [redacted] please",
+        "link": "https://shop.az/u/[redacted]?x=[redacted]&y=1",
+        "handle": "@user",
+        "frac": "a@b",
+        "list": [
+          "[redacted]",
+          "plain"
+        ],
+        "nested": {
+          "text": "a [redacted] e"
+        }
+      }
+    },
+    {
+      "name": "string values: phone numbers stay, JWT and URL values are scrubbed",
+      "kind": "props",
+      "input": {
+        "note": "+994501234567",
+        "ref": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+        "url": "https://shop.az/p?token=abc&a=1",
+        "state_value": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz"
+      },
+      "expected": {
+        "note": "[redacted]",
+        "ref": "[redacted]",
+        "url": "https://shop.az/p?a=1",
+        "state_value": "[redacted]"
+      }
+    },
+    {
+      "name": "string values: NUL removed, other control and non-ASCII kept",
+      "kind": "props",
+      "input": {
+        "a": "x\u0000y",
+        "b": "tab\there",
+        "c": "\u0259\u00e7\u015f \ud83d\ude00",
+        "d": "\ufeffbom",
+        "e": ""
+      },
+      "expected": {
+        "a": "xy",
+        "b": "tab\there",
+        "c": "\u0259\u00e7\u015f \ud83d\ude00",
+        "d": "\ufeffbom",
+        "e": ""
+      }
+    },
+    {
+      "name": "value types: numbers, booleans, null",
+      "kind": "props",
+      "input": {
+        "int": 42,
+        "neg": -7,
+        "zero": 0,
+        "float": 3.5,
+        "big": 9007199254740991,
+        "small": 0.001,
+        "yes": true,
+        "no": false,
+        "none": null
+      },
+      "expected": {
+        "int": 42,
+        "neg": -7,
+        "zero": 0,
+        "float": 3.5,
+        "big": 9007199254740991,
+        "small": 0.001,
+        "yes": true,
+        "no": false,
+        "none": null
+      }
+    },
+    {
+      "name": "nesting: forbidden keys are dropped at every level",
+      "kind": "props",
+      "input": {
+        "order": {
+          "id": "A-1",
+          "email": "x",
+          "customer": {
+            "phone": "1",
+            "name": "n",
+            "card": {
+              "number": "4111",
+              "brand": "visa"
+            }
+          }
+        },
+        "items": [
+          {
+            "id": 1,
+            "token": "t"
+          },
+          {
+            "id": 2,
+            "user_email": "a@b.az",
+            "email_verified": true
+          }
+        ]
+      },
+      "expected": {
+        "order": {
+          "id": "A-1",
+          "customer": {
+            "name": "n"
+          }
+        },
+        "items": [
+          {
+            "id": 1
+          },
+          {
+            "id": 2,
+            "email_verified": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "nesting: depth limit drops the fifth level",
+      "kind": "props",
+      "input": {
+        "a": {
+          "b": {
+            "c": {
+              "d": {
+                "e": 1
+              },
+              "d2": 2
+            },
+            "c2": [
+              [
+                [
+                  "deep"
+                ]
+              ],
+              "x"
+            ]
+          }
+        },
+        "l": [
+          [
+            [
+              [
+                "too deep"
+              ]
+            ]
+          ]
+        ]
+      },
+      "expected": {
+        "a": {
+          "b": {
+            "c": {
+              "d2": 2
+            },
+            "c2": [
+              "x"
+            ]
+          }
+        },
+        "l": [
+          [
+            []
+          ]
+        ]
+      }
+    },
+    {
+      "name": "nesting: arrays at each level and mixed content",
+      "kind": "props",
+      "input": {
+        "l1": [
+          1,
+          "a",
+          null,
+          true,
+          {
+            "k": "v",
+            "pin": 1
+          },
+          [
+            2,
+            [
+              3,
+              [
+                4
+              ]
+            ]
+          ]
+        ]
+      },
+      "expected": {
+        "l1": [
+          1,
+          "a",
+          null,
+          true,
+          {
+            "k": "v"
+          },
+          [
+            2,
+            [
+              3
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "name": "nesting: empty containers are kept",
+      "kind": "props",
+      "input": {
+        "o": {},
+        "a": [],
+        "n": {
+          "o": {},
+          "only": {
+            "pin": 1
+          }
+        }
+      },
+      "expected": {
+        "o": {},
+        "a": [],
+        "n": {
+          "o": {},
+          "only": {}
+        }
+      }
+    },
+    {
+      "name": "result: only forbidden keys gives no props",
+      "kind": "props",
+      "input": {
+        "email": "a@b.az",
+        "token": "t",
+        "user_phone": "1"
+      },
+      "expected": null
+    },
+    {
+      "name": "result: empty object gives no props",
+      "kind": "props",
+      "input": {},
+      "expected": null
+    },
+    {
+      "name": "standard e-commerce props are untouched",
+      "kind": "props",
+      "input": {
+        "value": 250,
+        "currency": "AZN",
+        "order_id": "A-1001",
+        "content_ids": [
+          "p1",
+          "p2"
+        ],
+        "contents": [
+          {
+            "id": "p1",
+            "quantity": 2,
+            "item_price": 125
+          }
+        ],
+        "coupon_code": "SUMMER",
+        "country_code": "AZ",
+        "postal_code": "AZ1000",
+        "search_string": "shoes"
+      },
+      "expected": {
+        "value": 250,
+        "currency": "AZN",
+        "order_id": "A-1001",
+        "content_ids": [
+          "p1",
+          "p2"
+        ],
+        "contents": [
+          {
+            "id": "p1",
+            "quantity": 2,
+            "item_price": 125
+          }
+        ],
+        "coupon_code": "SUMMER",
+        "country_code": "AZ",
+        "postal_code": "AZ1000",
+        "search_string": "shoes"
+      }
+    },
+    {
+      "name": "traits: exact email and phone are hashed, plain values dropped",
+      "kind": "traits",
+      "input": {
+        "email": "  User@Example.COM ",
+        "phone": "+994 (50) 123-45-67",
+        "plan": "pro"
+      },
+      "expected": {
+        "plan": "pro",
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514",
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+      }
+    },
+    {
+      "name": "traits: exact phone as a number",
+      "kind": "traits",
+      "input": {
+        "phone": 994501234567,
+        "name": "A"
+      },
+      "expected": {
+        "name": "A",
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+      }
+    },
+    {
+      "name": "traits: exact email is hashed without shape check, exact phone with any digit count",
+      "kind": "traits",
+      "input": {
+        "email": "not-an-email",
+        "phone": "12"
+      },
+      "expected": {
+        "email_sha256": "eba038945cb806ba629b6f4524d54ac7dddd3c3f46bcb12b19d9cf727aa4bdf5",
+        "phone_sha256": "6b51d431df5d7f141cbececcf79edf3dd861c3b4069f0b11661a3eefacbba918"
+      }
+    },
+    {
+      "name": "traits: exact email empty or blank, phone without digits",
+      "kind": "traits",
+      "input": {
+        "email": "   ",
+        "phone": "n/a",
+        "a": 1
+      },
+      "expected": {
+        "a": 1
+      }
+    },
+    {
+      "name": "traits: exact keys of wrong type are ignored",
+      "kind": "traits",
+      "input": {
+        "email": 5,
+        "phone": true,
+        "x": 1
+      },
+      "expected": {
+        "x": 1
+      }
+    },
+    {
+      "name": "traits: exact email null, other key used",
+      "kind": "traits",
+      "input": {
+        "email": null,
+        "work_email": "w@example.com"
+      },
+      "expected": {
+        "email_sha256": "c903c631ea32964dce960d4aa92c734fe022f2710c4dc78ac9ba92b53f33808d"
+      }
+    },
+    {
+      "name": "traits: mixed-case keys",
+      "kind": "traits",
+      "input": {
+        "Email": "user@example.com",
+        "PHONE": "+994501234567"
+      },
+      "expected": {
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514",
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+      }
+    },
+    {
+      "name": "traits: similar keys",
+      "kind": "traits",
+      "input": {
+        "user_email": "user@example.com",
+        "phoneNumber": "994501234567"
+      },
+      "expected": {
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77",
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+      }
+    },
+    {
+      "name": "traits: contactEmail and msisdn",
+      "kind": "traits",
+      "input": {
+        "contactEmail": " USER@example.com ",
+        "msisdn": "994-50-123-45-67"
+      },
+      "expected": {
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514",
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+      }
+    },
+    {
+      "name": "traits: mobile, tel, gsm, telephone keys (alphabetically first valid wins)",
+      "kind": "traits",
+      "input": {
+        "tel": "111111111",
+        "mobile": "222222222",
+        "gsm": "333333333",
+        "telephone": "444444444"
+      },
+      "expected": {
+        "phone_sha256": "6d350a2155acf0c0cd7dcbaab0c9587520a59e5da467948d0a568f4a61c0f7a0"
+      }
+    },
+    {
+      "name": "traits: several mail-like keys, alphabetically first valid wins",
+      "kind": "traits",
+      "input": {
+        "work_email": "w@example.com",
+        "backup_email": "b@example.com",
+        "Zmail": "z@example.com"
+      },
+      "expected": {
+        "email_sha256": "6107060a54ebeb96cf6f9dd699fd2008d6e9895dfd2264401e172c7b38c0ce00"
+      }
+    },
+    {
+      "name": "traits: upper-case key sorts before lower-case",
+      "kind": "traits",
+      "input": {
+        "b_email": "b@example.com",
+        "B_email": "upper@example.com"
+      },
+      "expected": {
+        "email_sha256": "4e3cc7c487a7cad7edf96f10eac280847d2d10d10943987057c431e3f18e3255"
+      }
+    },
+    {
+      "name": "traits: mail-like key with a value that is not e-mail-shaped is skipped",
+      "kind": "traits",
+      "input": {
+        "a_email": "none",
+        "b_email": "a b@example.com",
+        "c_email": "c@example",
+        "d_email": "d@example.com"
+      },
+      "expected": {
+        "email_sha256": "5fe5806a804c99a33dd1dfb18fadd87f4ff450027de5515122b850decfd5f9a2"
+      }
+    },
+    {
+      "name": "traits: phone-like key needs at least 7 digits",
+      "kind": "traits",
+      "input": {
+        "a_phone": "123456",
+        "b_phone": "1234567",
+        "c_phone": "99999999"
+      },
+      "expected": {
+        "phone_sha256": "8bb0cf6eb9b17d0f7d22b456f121257dc1254e1f01665370476383ea776df414"
+      }
+    },
+    {
+      "name": "traits: phone-like key as number and with text",
+      "kind": "traits",
+      "input": {
+        "home_tel": "call 050 123 45 67 ext 9",
+        "mobile": 501234567
+      },
+      "expected": {
+        "phone_sha256": "fe2ad50d65127c206e873d78e22f8f08e9587864a3c16d1e7c0a3903ff6b8961"
+      }
+    },
+    {
+      "name": "traits: exact key wins over similar keys",
+      "kind": "traits",
+      "input": {
+        "a_email": "a@example.com",
+        "email": "user@example.com",
+        "a_phone": "1111111",
+        "phone": "994501234567"
+      },
+      "expected": {
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514",
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+      }
+    },
+    {
+      "name": "traits: provided email_sha256 is kept and blocks similar keys",
+      "kind": "traits",
+      "input": {
+        "email_sha256": "provided",
+        "user_email": "user@example.com",
+        "phone_sha256": "provided2",
+        "mobile": "994501234567"
+      },
+      "expected": {
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77",
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+      }
+    },
+    {
+      "name": "traits: exact email overrides a provided email_sha256",
+      "kind": "traits",
+      "input": {
+        "email_sha256": "provided",
+        "email": "user@example.com"
+      },
+      "expected": {
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+      }
+    },
+    {
+      "name": "traits: one nested level is hashed",
+      "kind": "traits",
+      "input": {
+        "profile": {
+          "email": "user@example.com",
+          "phone": "+994501234567",
+          "name": "N"
+        },
+        "plan": "pro"
+      },
+      "expected": {
+        "profile": {
+          "name": "N"
+        },
+        "plan": "pro",
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514",
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+      }
+    },
+    {
+      "name": "traits: nested similar keys",
+      "kind": "traits",
+      "input": {
+        "contact": {
+          "workEmail": "W@Example.com",
+          "mobile": "0501234567"
+        }
+      },
+      "expected": {
+        "contact": {},
+        "phone_sha256": "01cc498c268a4314d231f2e899a9faf717b7f8bbc9f3889bb1e539651907adde",
+        "email_sha256": "c903c631ea32964dce960d4aa92c734fe022f2710c4dc78ac9ba92b53f33808d"
+      }
+    },
+    {
+      "name": "traits: second nested level is not hashed",
+      "kind": "traits",
+      "input": {
+        "a": {
+          "b": {
+            "email": "user@example.com",
+            "phone": "994501234567",
+            "keep": 1
+          }
+        }
+      },
+      "expected": {
+        "a": {
+          "b": {
+            "keep": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "traits: top-level key and nested key, sorted order decides",
+      "kind": "traits",
+      "input": {
+        "profile": {
+          "email": "nested@example.com"
+        },
+        "work_email": "top@example.com"
+      },
+      "expected": {
+        "profile": {},
+        "email_sha256": "a0d3d9b8ff96530ee9fa7eb9c2069e550439da7626326cc85af2c9aafb744e7f"
+      }
+    },
+    {
+      "name": "traits: nested object before top-level key in sorted order",
+      "kind": "traits",
+      "input": {
+        "zz_email": "top@example.com",
+        "account": {
+          "email": "nested@example.com"
+        }
+      },
+      "expected": {
+        "account": {},
+        "email_sha256": "a0d3d9b8ff96530ee9fa7eb9c2069e550439da7626326cc85af2c9aafb744e7f"
+      }
+    },
+    {
+      "name": "traits: arrays are not searched",
+      "kind": "traits",
+      "input": {
+        "emails": [
+          "user@example.com"
+        ],
+        "contacts": [
+          {
+            "email": "user@example.com"
+          }
+        ],
+        "n": 1
+      },
+      "expected": {
+        "contacts": [
+          {}
+        ],
+        "n": 1
+      }
+    },
+    {
+      "name": "traits: flags under mail and phone keys are kept and not hashed",
+      "kind": "traits",
+      "input": {
+        "email_verified": true,
+        "phone_verified": false,
+        "has_email": null
+      },
+      "expected": {
+        "email_verified": true,
+        "phone_verified": false,
+        "has_email": null
+      }
+    },
+    {
+      "name": "traits: sha256-suffixed keys are never hashed again",
+      "kind": "traits",
+      "input": {
+        "backup_email_sha256": "x@example.com",
+        "work_phone_sha256": "994501234567"
+      },
+      "expected": null
+    },
+    {
+      "name": "traits: forbidden and secret keys are dropped",
+      "kind": "traits",
+      "input": {
+        "password": "x",
+        "token": "t",
+        "card_number": "4111",
+        "name": "N",
+        "age": 30
+      },
+      "expected": {
+        "name": "N",
+        "age": 30
+      }
+    },
+    {
+      "name": "traits: e-mail inside other string values is redacted",
+      "kind": "traits",
+      "input": {
+        "note": "reach me at user@example.com",
+        "website": "https://example.com/u/a@b.az"
+      },
+      "expected": {
+        "note": "reach me at [redacted]",
+        "website": "https://example.com/u/[redacted]"
+      }
+    },
+    {
+      "name": "traits: NUL and surrounding whitespace in e-mail",
+      "kind": "traits",
+      "input": {
+        "email": "\u00a0U\u0000ser@Example.com\ufeff\n"
+      },
+      "expected": {
+        "email_sha256": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+      }
+    },
+    {
+      "name": "traits: non-ASCII e-mail is lowercased and hashed as UTF-8",
+      "kind": "traits",
+      "input": {
+        "email": "\u018fli@N\u00fcmun\u0259.AZ"
+      },
+      "expected": {
+        "email_sha256": "e207bff2c05dc8f988532d0522ff3580d1633ede896beaa31a1a3a881ab40bb6"
+      }
+    },
+    {
+      "name": "traits: empty traits give no traits",
+      "kind": "traits",
+      "input": {},
+      "expected": null
+    },
+    {
+      "name": "traits: only dropped keys without hashable values",
+      "kind": "traits",
+      "input": {
+        "user_pin": 1,
+        "password": "x"
+      },
+      "expected": null
+    },
+    {
+      "name": "v2 A4 secret keys are dropped",
+      "kind": "props",
+      "input": {
+        "credit_card": "x",
+        "user_card": "x",
+        "cardPan": "x",
+        "pan": "x",
+        "api_key": "x",
+        "apiKey": "x",
+        "authorization": "x",
+        "session_id": "x",
+        "sessionId": "x",
+        "cookie": "x",
+        "accesstoken": "x",
+        "csrftoken": "x",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "v2 A4 more secret key spellings",
+      "kind": "props",
+      "input": {
+        "access_key": "x",
+        "privateKey": "x",
+        "auth_key": "x",
+        "sessid": "x",
+        "bearer": "x",
+        "credentials": "x",
+        "xsrf": "x",
+        "Authorisation": "x",
+        "pw": "x",
+        "card_pan": "x",
+        "kart": "x",
+        "KART": "x",
+        "kartNomresi": "x",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "v2 A4 harmless keys stay",
+      "kind": "props",
+      "input": {
+        "card_type": "visa",
+        "card_brand": "mc",
+        "is_mobile": true,
+        "email_verified": true,
+        "key": "k",
+        "keyboard": "qwerty",
+        "session_count": 3,
+        "session_duration": 12,
+        "panel": "a",
+        "company": "b",
+        "cookies_enabled": true,
+        "api_version": 2,
+        "sessionIdle": 1,
+        "authorized": true,
+        "is_authorized": "yes",
+        "author": "x",
+        "tokens_used": 5,
+        "discount_card": true
+      },
+      "expected": {
+        "card_type": "visa",
+        "card_brand": "mc",
+        "is_mobile": true,
+        "email_verified": true,
+        "key": "k",
+        "keyboard": "qwerty",
+        "session_count": 3,
+        "session_duration": 12,
+        "panel": "a",
+        "company": "b",
+        "cookies_enabled": true,
+        "api_version": 2,
+        "sessionIdle": 1,
+        "authorized": true,
+        "is_authorized": "yes",
+        "author": "x",
+        "tokens_used": 5,
+        "discount_card": true
+      }
+    },
+    {
+      "name": "v2 A4 string values: jwt, card, url",
+      "kind": "props",
+      "input": {
+        "jwt_like": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc",
+        "n1": "4111111111111111",
+        "n2": "4111 1111 1111 1111",
+        "n3": "4111-1111-1111-1111",
+        "n4": "378282246310005",
+        "notcard": "4111111111111112",
+        "order": "1234567890",
+        "link": "https://shop.az/reset?token=abc123456789",
+        "link2": "https://shop.az/account/reset/6789012345678/5d41402abc4b2a76b9719d911017c592-1626868876?x=1#frag",
+        "app": "myapp://verify/482913",
+        "note": "see https://shop.az/reset?token=abc inside text",
+        "mail": "write to a@b.az please",
+        "list": [
+          "https://shop.az/p?password=1&a=2",
+          "4111111111111111"
+        ]
+      },
+      "expected": {
+        "jwt_like": "[redacted]",
+        "n1": "[redacted]",
+        "n2": "[redacted]",
+        "n3": "[redacted]",
+        "n4": "[redacted]",
+        "notcard": "4111111111111112",
+        "order": "1234567890",
+        "link": "https://shop.az/reset",
+        "link2": "https://shop.az/account/reset/[redacted]/[redacted]?x=1",
+        "app": "myapp://verify/[redacted]",
+        "note": "see https://shop.az/reset inside text",
+        "list": [
+          "https://shop.az/p?a=2",
+          "[redacted]"
+        ]
+      }
+    },
+    {
+      "name": "v2 A3 azerbaijani keys in props",
+      "kind": "props",
+      "input": {
+        "telefon": "0501234567",
+        "mobil": "0501234567",
+        "nomre": "0501234567",
+        "n\u00f6mr\u0259": "0501234567",
+        "whatsapp": "+994501234567",
+        "parol": "x",
+        "sifre": "x",
+        "\u015fifr\u0259": "x",
+        "shifre": "x",
+        "yeniParol": "x",
+        "kart": "x",
+        "poct": "a@b.az",
+        "po\u00e7t": "a@b.az",
+        "eposta": "a@b.az",
+        "homephone": "1",
+        "mobilephone": "1",
+        "keep": 1,
+        "mobil_tetbiq": true,
+        "mobilya": "x"
+      },
+      "expected": {
+        "keep": 1,
+        "mobil_tetbiq": true,
+        "mobilya": "x"
+      }
+    },
+    {
+      "name": "v2 A3 azerbaijani keys in traits are hashed",
+      "kind": "traits",
+      "input": {
+        "telefon": "+994 50 123 45 67",
+        "eposta": "A@B.az",
+        "ad": "Ali"
+      },
+      "expected": {
+        "ad": "Ali",
+        "email_sha256": "5112b461d32844f6fc0ea92e45d08556471d1e9425bb23cffdb2f27898375f5b",
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+      }
+    },
+    {
+      "name": "v2 A3 whatsapp and poct in traits",
+      "kind": "traits",
+      "input": {
+        "whatsapp": "994501234567",
+        "po\u00e7t": "a@b.az",
+        "plan": "pro"
+      },
+      "expected": {
+        "plan": "pro",
+        "email_sha256": "5112b461d32844f6fc0ea92e45d08556471d1e9425bb23cffdb2f27898375f5b",
+        "phone_sha256": "6878509fec498b26fdbf7db3495a7e4e0bceda9e9170b399baff6de3d933ba77"
+      }
+    },
+    {
+      "name": "v2 A3 nomre and mobil in traits",
+      "kind": "traits",
+      "input": {
+        "n\u00f6mr\u0259": "0501234567",
+        "sifre": "x",
+        "seher": "Baku"
+      },
+      "expected": {
+        "seher": "Baku",
+        "phone_sha256": "01cc498c268a4314d231f2e899a9faf717b7f8bbc9f3889bb1e539651907adde"
+      }
+    },
+    {
+      "name": "v2 A7 label: phone with plus and spaces",
+      "kind": "label",
+      "input": "Sifari\u015f +994 50 123 45 67 \u2013 John Doe",
+      "expected": "Sifari\u015f [redacted] \u2013 John Doe"
+    },
+    {
+      "name": "v2 A7 label: e-mail and long digit run",
+      "kind": "label",
+      "input": "Profil a@b.az / 0501234567 (m\u00fc\u015ft\u0259ri)",
+      "expected": "Profil [redacted] / [redacted] (m\u00fc\u015ft\u0259ri)"
+    },
+    {
+      "name": "v2 A7 label: short numbers and dates stay",
+      "kind": "label",
+      "input": "Order 12345 \u2013 25.11.2026 14:30, +1 item, 2+2=4, tel +99450",
+      "expected": "Order 12345 \u2013 25.11.2026 14:30, +1 item, 2+2=4, tel +99450"
+    },
+    {
+      "name": "v2 A7 label: plus with too many digits falls back to the run rule",
+      "kind": "label",
+      "input": "x +1234567890123456 y +994(50)123-45-67.",
+      "expected": "x +[redacted] y [redacted]."
+    },
+    {
+      "name": "v2 A7 label: plain screen name",
+      "kind": "label",
+      "input": "ProductDetail",
+      "expected": "ProductDetail"
+    },
+    {
+      "name": "audit2 A4 url parts in values",
+      "kind": "props",
+      "input": {
+        "page_path": "/reset/4f9c2a71b3e8",
+        "path": "/cb?token=Ab12Cd34Ef56",
+        "search": "?token=Ab12Cd34Ef56&email=a%40b.az&page=2",
+        "hash": "#access_token=Ab12Cd34Ef56&view=grid",
+        "route": "#/reset/4f9c2a71b3e8",
+        "location": " https://shop.az/cb?token=Ab12Cd34Ef56",
+        "href": "shop.az/cb?token=Ab12Cd34Ef56"
+      },
+      "expected": {
+        "page_path": "/reset/[redacted]",
+        "path": "/cb",
+        "search": "?page=2",
+        "hash": "#view=grid",
+        "route": "#/reset/[redacted]",
+        "location": "https://shop.az/cb",
+        "href": "shop.az/cb"
+      }
+    },
+    {
+      "name": "audit2 A4 values that only look like url parts are kept",
+      "kind": "props",
+      "input": {
+        "color": "#ff0000",
+        "tag": "#sale",
+        "ratio": "/ 5",
+        "q": "?",
+        "note": "and/or",
+        "path": "/products/shoes",
+        "anchor": "#a=b"
+      },
+      "expected": {
+        "color": "#ff0000",
+        "tag": "#sale",
+        "ratio": "/ 5",
+        "q": "?",
+        "note": "and/or",
+        "path": "/products/shoes",
+        "anchor": "#a=b"
+      }
+    },
+    {
+      "name": "audit2 A4 phone numbers in values",
+      "kind": "props",
+      "input": {
+        "username": "+994501234567",
+        "login": "+994 50 123 45 67",
+        "contact": "tel:+994501234567",
+        "text": "call +994 (50) 123-45-67 now",
+        "points": "+50 points"
+      },
+      "expected": {
+        "username": "[redacted]",
+        "login": "[redacted]",
+        "contact": "tel:[redacted]",
+        "text": "call [redacted] now",
+        "points": "+50 points"
+      }
+    },
+    {
+      "name": "audit2 A4 card numbers in values",
+      "kind": "props",
+      "input": {
+        "note": "card 4111111111111111 exp 12/27",
+        "n2": " 4111111111111111",
+        "n3": "4111111111111111\n",
+        "n4": "pay 4111 1111 1111 1111 or 4111-1111-1111-1111.",
+        "order": "order 1234567890123456 ok",
+        "short": "4111 1111"
+      },
+      "expected": {
+        "note": "card [redacted] exp 12/27",
+        "n2": "[redacted]",
+        "n3": "[redacted]",
+        "n4": "pay [redacted] or [redacted].",
+        "order": "order 1234567890123456 ok",
+        "short": "4111 1111"
+      }
+    },
+    {
+      "name": "audit2 A4 tokens in values",
+      "kind": "props",
+      "input": {
+        "t": "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOWdkazcifQ.eyJzdWIiOiIyNDgyODk3NjEwMDEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+        "k": "sk_live_51HabcDEF12345",
+        "h": "d41d8cd98f00b204e9800998ecf8427e",
+        "u": "3f2b8c1e6a4d4e2f9b7a1c5d8e9f0a2b",
+        "w": "auth=\"eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOWdkazcifQ.eyJzdWIiOiIyNDgyODk3NjEwMDEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\", hash:d41d8cd98f00b204e9800998ecf8427e;",
+        "id": "pi_3MtwBwLkdIwHu7ix28a3tqPa"
+      },
+      "expected": {
+        "t": "Bearer [redacted]",
+        "k": "[redacted]",
+        "h": "[redacted]",
+        "u": "3f2b8c1e6a4d4e2f9b7a1c5d8e9f0a2b",
+        "w": "auth=\"[redacted]\", hash:[redacted];",
+        "id": "pi_3MtwBwLkdIwHu7ix28a3tqPa"
+      }
+    },
+    {
+      "name": "audit2 A4 url inside text",
+      "kind": "props",
+      "input": {
+        "note": "see https://shop.az/cb?token=Ab12Cd34Ef56&page=2 and /reset/4f9c2a71b3e8 now"
+      },
+      "expected": {
+        "note": "see https://shop.az/cb?page=2 and /reset/[redacted] now"
+      }
+    },
+    {
+      "name": "audit2 A5 sha256 keys need a 64 hex value",
+      "kind": "props",
+      "input": {
+        "password_sha256": "hunter2",
+        "phone_sha256": "+994501234567",
+        "card_sha256": "4169 7385 1234 5678",
+        "token_sha256": "Ab12Cd34Ef56",
+        "email_sha256": "farid\uff20mail.az",
+        "ok_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "EMAIL_SHA256": "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08",
+        "plain_sha256": "abc"
+      },
+      "expected": {
+        "ok_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "EMAIL_SHA256": "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08",
+        "plain_sha256": "abc"
+      }
+    },
+    {
+      "name": "audit2 A5 sha256 trait keys need a 64 hex value",
+      "kind": "traits",
+      "input": {
+        "phone_sha256": "+994501234567",
+        "email_sha256": "user@shop.az"
+      },
+      "expected": null
+    },
+    {
+      "name": "audit2 A7 secret key names",
+      "kind": "props",
+      "input": {
+        "sms_code": "482913",
+        "verification_code": "482913",
+        "auth": "Ab12Cd34Ef56",
+        "session": "Ab12Cd34Ef56",
+        "sid": "Ab12Cd34Ef56",
+        "psw": "hunter2",
+        "pasport": "AA1234567",
+        "otp_code": 482913,
+        "fin_kod": "5ABC123",
+        "cookie_value": "abc",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "audit2 A7 ordinary code names are kept",
+      "kind": "props",
+      "input": {
+        "code": "E42",
+        "product_code": "A54",
+        "error_code": 500,
+        "promo_code": "YAY10",
+        "key": "main"
+      },
+      "expected": {
+        "code": "E42",
+        "product_code": "A54",
+        "error_code": 500,
+        "promo_code": "YAY10",
+        "key": "main"
+      }
+    },
+    {
+      "name": "audit2 A9 card keys ending in a digit, space or punctuation",
+      "kind": "props",
+      "input": {
+        "card2": "4111111111111111",
+        "card_2": "4169 73** **** 5678",
+        "kart1": "4169-7385-1234-5678",
+        "card": "4111111111111111",
+        "credit card ": "x",
+        "card-": "x",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "audit2 B1 ambiguous words that are not the last word",
+      "kind": "props",
+      "input": {
+        "token_count": 3,
+        "token_symbol": "USDT",
+        "cookie_consent": true,
+        "cookie_banner": "shown",
+        "phone_model": "iPhone15",
+        "phone_brand": "Apple",
+        "mobile_os": "android",
+        "pan_size": "28cm",
+        "pin_color": "red",
+        "otp_sent": true,
+        "password_changed": true,
+        "emails_sent": 5,
+        "whatsapp_click": 1,
+        "video_card": "RTX 4070",
+        "memory_card": "64gb",
+        "gift_card": "GC-50",
+        "fin_score": 5,
+        "pass_type": "monthly"
+      },
+      "expected": {
+        "token_count": 3,
+        "token_symbol": "USDT",
+        "cookie_consent": true,
+        "cookie_banner": "shown",
+        "phone_model": "iPhone15",
+        "phone_brand": "Apple",
+        "mobile_os": "android",
+        "pan_size": "28cm",
+        "pin_color": "red",
+        "otp_sent": true,
+        "password_changed": true,
+        "emails_sent": 5,
+        "whatsapp_click": 1,
+        "video_card": "RTX 4070",
+        "memory_card": "64gb",
+        "gift_card": "GC-50",
+        "fin_score": 5,
+        "pass_type": "monthly"
+      }
+    },
+    {
+      "name": "audit2 B1 still dropped",
+      "kind": "props",
+      "input": {
+        "token": "x",
+        "access_token": "x",
+        "user_token": "x",
+        "password": "x",
+        "card": "x",
+        "credit_card": "x",
+        "session_id": "x",
+        "api_key": "x",
+        "cookie": "x",
+        "has_password": true,
+        "password_hint": "a",
+        "user_pin": 1234,
+        "cvv_code": 45,
+        "phone_number": "x",
+        "phone_home": "050 123 45 67",
+        "mobile": "0501234567",
+        "emails_sent": "yes",
+        "email_count": 100000,
+        "keep": 1
+      },
+      "expected": {
+        "has_password": true,
+        "emails_sent": "yes",
+        "keep": 1
+      }
+    },
+    {
+      "name": "audit2 B1 flags and small numbers",
+      "kind": "props",
+      "input": {
+        "mobile": 1,
+        "is_mobile": true,
+        "credit_card": true,
+        "user_otp": false,
+        "email_count": 99999,
+        "phone_count": 2,
+        "session": null
+      },
+      "expected": {
+        "mobile": 1,
+        "is_mobile": true,
+        "credit_card": true,
+        "user_otp": false,
+        "email_count": 99999,
+        "phone_count": 2,
+        "session": null
+      }
+    },
+    {
+      "name": "audit2 B3 asset names and handles are not e-mails",
+      "kind": "props",
+      "input": {
+        "image": "https://cdn.shop.az/img/logo@2x.png",
+        "img": "hero@3x.jpg",
+        "pkg": "react@18.3.1",
+        "handle": "@farid",
+        "mention": "cc @farid.kerimov",
+        "mail": "write to user@shop.az"
+      },
+      "expected": {
+        "image": "https://cdn.shop.az/img/logo@2x.png",
+        "img": "hero@3x.jpg",
+        "pkg": "react@18.3.1",
+        "handle": "@farid",
+        "mention": "cc @farid.kerimov"
+      }
+    },
+    {
+      "name": "audit2 B4 ids in values are kept",
+      "kind": "props",
+      "input": {
+        "cuid": "clh3am1f30000udocl363eofy",
+        "ulid": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "order_id": "20261125123456",
+        "object_id": "507f1f77bcf86cd799439011",
+        "uuid": "3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b"
+      },
+      "expected": {
+        "cuid": "clh3am1f30000udocl363eofy",
+        "ulid": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "order_id": "20261125123456",
+        "object_id": "507f1f77bcf86cd799439011",
+        "uuid": "3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b"
+      }
+    },
+    {
+      "name": "audit2 A10 long values are not e-mail or phone candidates",
+      "kind": "traits",
+      "input": {
+        "user_email": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+        "user_phone": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        "bio": "x                                                                                                                                                                                                                                                                                                                                                                                                                x"
+      },
+      "expected": {
+        "bio": "x                                                                                                                                                                                                                                                                                                                                                                                                                x"
+      }
+    },
+    {
+      "name": "audit2 A10 exact email and phone longer than 320 are not hashed",
+      "kind": "traits",
+      "input": {
+        "email": "                                                                                                                                                                                                                                                                                                                                          a@b.az",
+        "phone": "+994501234567                                                                                                                                                                                                                                                                                                                                "
+      },
+      "expected": null
+    },
+    {
+      "name": "audit2 A8 label that is a path",
+      "kind": "label",
+      "input": "/reset-password/4f9c2a71b3e8",
+      "expected": "/reset-password/[redacted]"
+    },
+    {
+      "name": "audit2 A8 label that is a deep link",
+      "kind": "label",
+      "input": "shop://reset/482913",
+      "expected": "shop://reset/[redacted]"
+    },
+    {
+      "name": "audit2 A8 label with a query",
+      "kind": "label",
+      "input": "ResetPassword?token=Ab12Cd34Ef56",
+      "expected": "ResetPassword"
+    },
+    {
+      "name": "audit2 A8 label with spaces around a link",
+      "kind": "label",
+      "input": " https://shop.az/verify/482913 ",
+      "expected": "https://shop.az/verify/[redacted]"
+    },
+    {
+      "name": "audit2 A8 label with a JWT",
+      "kind": "label",
+      "input": "Session eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOWdkazcifQ.eyJzdWIiOiIyNDgyODk3NjEwMDEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+      "expected": "Session [redacted]"
+    },
+    {
+      "name": "audit2 B3 label asset name",
+      "kind": "label",
+      "input": "logo@2x.png",
+      "expected": "logo@2x.png"
+    },
+    {
+      "name": "audit2 label phone without plus",
+      "kind": "label",
+      "input": "\u018flaq\u0259 050 123 45 67",
+      "expected": "\u018flaq\u0259 050 123 45 67"
+    },
+    {
+      "name": "audit2 label short code is kept",
+      "kind": "label",
+      "input": "OTP 482913",
+      "expected": "OTP 482913"
+    },
+    {
+      "name": "audit2 label ordinary title",
+      "kind": "label",
+      "input": "Shop.az | Ana s\u0259hif\u0259 / Kataloq #1",
+      "expected": "Shop.az | Ana s\u0259hif\u0259 / Kataloq #1"
+    },
+    {
+      "name": "audit3 H3 secrets next to punctuation",
+      "kind": "props",
+      "input": {
+        "a": "k=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz&z=1",
+        "b": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz.",
+        "c": "sk_live_51HabcDEF12345!",
+        "d": "a|9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c|b",
+        "e": "\u201ceyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz\u201d",
+        "f": "a/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz",
+        "g": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz\u200b",
+        "h": "see eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz, ok?",
+        "i": "*9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c*",
+        "j": "9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c."
+      },
+      "expected": {
+        "a": "k=[redacted]&z=1",
+        "b": "[redacted].",
+        "c": "[redacted]!",
+        "d": "a|[redacted]|b",
+        "e": "\u201c[redacted]\u201d",
+        "f": "a/[redacted]",
+        "g": "[redacted]\u200b",
+        "h": "see [redacted], ok?",
+        "i": "*[redacted]*",
+        "j": "[redacted]."
+      }
+    },
+    {
+      "name": "audit3 H3 name=value text is cleaned like a query",
+      "kind": "props",
+      "input": {
+        "a": "access_token=Xk29LmQa&z=1",
+        "b": "access_token=Xk29LmQa",
+        "c": "state=ok&session_id=abc&x=1",
+        "d": "failed: refresh_token=Xk29LmQa7 expired"
+      },
+      "expected": {
+        "a": "z=1",
+        "b": "",
+        "c": "state=ok&x=1",
+        "d": "failed:  expired"
+      }
+    },
+    {
+      "name": "audit3 H3 ordinary name=value text is kept",
+      "kind": "props",
+      "input": {
+        "a": "code=200 key=value auth=ok",
+        "b": "x=1&y=2",
+        "c": "a=b",
+        "d": "size=XL color=red",
+        "e": "R&D=1"
+      },
+      "expected": {
+        "a": "code=200 key=value auth=ok",
+        "b": "x=1&y=2",
+        "c": "a=b",
+        "d": "size=XL color=red",
+        "e": "R&D=1"
+      }
+    },
+    {
+      "name": "audit3 M4 IBAN, Bearer and long tokens in text",
+      "kind": "props",
+      "input": {
+        "n1": "IBAN AZ21NABZ00000000137010001944.",
+        "n2": "DE89370400440532013000",
+        "n3": "Authorization: Bearer abcDEF123456",
+        "n4": "{\"Authorization\":\"Bearer abcDEF123456\"}",
+        "n5": "tok dGhpcyBpcyBhIHNlY3JldCB0b2tlbiBmb3I1 end",
+        "n6": "sk-proj-abcDEF123456ghiJKL789012mnoPQR345678",
+        "n7": "bearer abcdef12 x"
+      },
+      "expected": {
+        "n1": "IBAN [redacted].",
+        "n2": "[redacted]",
+        "n3": "Authorization: Bearer [redacted]",
+        "n4": "{\"Authorization\":\"Bearer [redacted]\"}",
+        "n5": "tok [redacted] end",
+        "n6": "[redacted]",
+        "n7": "bearer [redacted] x"
+      }
+    },
+    {
+      "name": "audit3 M4 card separators",
+      "kind": "props",
+      "input": {
+        "n1": "4111\u00a01111\u00a01111\u00a01111",
+        "n2": "4111  1111  1111  1111",
+        "n3": "4111/1111/1111/1111",
+        "n4": "card 4111 - 1111 - 1111 - 1111 ok",
+        "n5": "4111\u202f1111\u20091111 1111"
+      },
+      "expected": {
+        "n1": "[redacted]",
+        "n2": "[redacted]",
+        "n3": "[redacted]",
+        "n4": "card [redacted] ok",
+        "n5": "[redacted]"
+      }
+    },
+    {
+      "name": "audit3 M4 ordinary long values are kept",
+      "kind": "props",
+      "input": {
+        "id": "pi_3MtwBwLkdIwHu7ix28a3tqPa",
+        "screen": "Step3ShippingAddressViewControllerScreen",
+        "file": "9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c.jpg",
+        "uid": "kJ8sH2mPq9XvR4tLw7ZnB3cD5fGh",
+        "word": "Pneumonoultramicroscopicsilicovolcanoconiosis",
+        "sku": "SKU-2026-ABCD-0042",
+        "n1": "AZ21NABZ00000000137010001945",
+        "n2": "Bearer of bad news",
+        "n3": "bearer authentication failed",
+        "n4": "4111 1111 1111 1112",
+        "n5": "order_2026_summer_collection_items_list"
+      },
+      "expected": {
+        "id": "pi_3MtwBwLkdIwHu7ix28a3tqPa",
+        "screen": "Step3ShippingAddressViewControllerScreen",
+        "file": "9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c.jpg",
+        "uid": "kJ8sH2mPq9XvR4tLw7ZnB3cD5fGh",
+        "word": "Pneumonoultramicroscopicsilicovolcanoconiosis",
+        "sku": "SKU-2026-ABCD-0042",
+        "n1": "AZ21NABZ00000000137010001945",
+        "n2": "Bearer of bad news",
+        "n3": "bearer authentication failed",
+        "n4": "4111 1111 1111 1112",
+        "n5": "order_2026_summer_collection_items_list"
+      }
+    },
+    {
+      "name": "audit3 M4 label: screen names are kept, secrets are masked",
+      "kind": "label",
+      "input": "Step3ShippingAddressViewControllerScreen | Token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz. | 4111\u00a01111\u00a01111\u00a01111",
+      "expected": "Step3ShippingAddressViewControllerScreen | Token [redacted]. | [redacted]"
+    },
+    {
+      "name": "audit3 L keys dropped unless the value is a flag",
+      "kind": "props",
+      "input": {
+        "signature": "x",
+        "sig": "ab",
+        "nonce": "n1",
+        "license_key": "AAAA",
+        "licence_key": "AAAA",
+        "cardholder": "A B",
+        "creditcard": "x",
+        "cc_number": "x",
+        "pinkod": "1234",
+        "totp": "123456",
+        "twofa_code": "123456",
+        "2fa_code": "123456",
+        "account_number": "x",
+        "hesab_nomresi": "x",
+        "requestSignature": "x",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "audit3 L the same keys with flag values are kept",
+      "kind": "props",
+      "input": {
+        "signature": true,
+        "sig": null,
+        "nonce": false,
+        "license_key": true,
+        "cardholder": true,
+        "creditcard": false,
+        "cc_number": null,
+        "pinkod": true,
+        "totp": false,
+        "twofa_code": true,
+        "account_number": true,
+        "hesab_nomresi": null
+      },
+      "expected": {
+        "signature": true,
+        "sig": null,
+        "nonce": false,
+        "license_key": true,
+        "cardholder": true,
+        "creditcard": false,
+        "cc_number": null,
+        "pinkod": true,
+        "totp": false,
+        "twofa_code": true,
+        "account_number": true,
+        "hesab_nomresi": null
+      }
+    },
+    {
+      "name": "audit3 L hash, key and invite_code are kept",
+      "kind": "props",
+      "input": {
+        "hash": "h1",
+        "key": "k1",
+        "invite_code": "c1",
+        "license": "MIT",
+        "account": "pro",
+        "number": 5
+      },
+      "expected": {
+        "hash": "h1",
+        "key": "k1",
+        "invite_code": "c1",
+        "license": "MIT",
+        "account": "pro",
+        "number": 5
+      }
+    },
+    {
+      "name": "audit3 L secret keys with flag values are kept",
+      "kind": "props",
+      "input": {
+        "has_password": true,
+        "has_cvv": false,
+        "is_secret": true,
+        "user_password": true,
+        "client_secret": null,
+        "cvv": true,
+        "password": true,
+        "has_token": true
+      },
+      "expected": {
+        "has_password": true,
+        "has_cvv": false,
+        "is_secret": true,
+        "user_password": true,
+        "client_secret": null
+      }
+    },
+    {
+      "name": "audit3 L secretary and sifrele are not secrets",
+      "kind": "props",
+      "input": {
+        "secretary": "Anna",
+        "secretariat": "x",
+        "sifreleme": "aes",
+        "sifrelenmis": "yes",
+        "secret": "x",
+        "secrets": "x",
+        "secretkey": "x",
+        "sifre": "x",
+        "sifresi": "x",
+        "\u015fifr\u0259": "x",
+        "\u015fifr\u0259l\u0259m\u0259": "aes"
+      },
+      "expected": {
+        "secretary": "Anna",
+        "secretariat": "x",
+        "sifreleme": "aes",
+        "sifrelenmis": "yes",
+        "\u015fifr\u0259l\u0259m\u0259": "aes"
+      }
+    },
+    {
+      "name": "audit3 L mail and phone keys with setting values are kept",
+      "kind": "props",
+      "input": {
+        "email_template": "welcome",
+        "email_campaign": "bf",
+        "email_provider": "gmail",
+        "mailing_list": "news",
+        "mobile": "ios",
+        "is_mobile": "yes",
+        "mobile_enabled": "on",
+        "phone_status": "verified",
+        "email_optin": "no",
+        "mobile_app": "Android"
+      },
+      "expected": {
+        "email_template": "welcome",
+        "email_campaign": "bf",
+        "email_provider": "gmail",
+        "mailing_list": "news",
+        "mobile": "ios",
+        "is_mobile": "yes",
+        "mobile_enabled": "on",
+        "phone_status": "verified",
+        "email_optin": "no",
+        "mobile_app": "Android"
+      }
+    },
+    {
+      "name": "audit3 L mail and phone keys with contact values are dropped",
+      "kind": "props",
+      "input": {
+        "email_status": "a@b.az",
+        "email_type": "12345678",
+        "mail": "work",
+        "user_mobile": "0501234567",
+        "email_list": "a-very-long-value-that-is-over-32-chars",
+        "email_template": "user\uff20shop.az",
+        "mobile": "iOS 17",
+        "phone": "ios",
+        "email": "yes",
+        "keep": 1
+      },
+      "expected": {
+        "keep": 1
+      }
+    },
+    {
+      "name": "audit3 L traits: setting values are kept, addresses are hashed",
+      "kind": "traits",
+      "input": {
+        "email_template": "welcome",
+        "mobile": "ios",
+        "work_email": "user@shop.az"
+      },
+      "expected": {
+        "email_template": "welcome",
+        "mobile": "ios",
+        "email_sha256": "429b674a8aaf6d1dd5960a08f4f0f45e97e6e800c2a2275e4bd9c1b89605084c"
+      }
+    },
+    {
+      "name": "audit4 N1 url followed by punctuation in a text",
+      "kind": "props",
+      "input": {
+        "message": "Reset link: https://shop.az/a?k=a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7.",
+        "json": "{\"url\":\"https://shop.az/x?k=9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c\"}",
+        "paren": "(https://shop.az/a?v=sk_live_51HabcDEF12345)",
+        "path": "see /dl/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c, ok",
+        "dot": "https://shop.az/a/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c.",
+        "html": "<a href=\"https://shop.az/a?k=9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c\">"
+      },
+      "expected": {
+        "message": "Reset link: https://shop.az/a?k=[redacted]",
+        "json": "{\"url\":\"https://shop.az/x?k=[redacted]",
+        "paren": "(https://shop.az/a?v=[redacted])",
+        "path": "see /dl/[redacted] ok",
+        "dot": "https://shop.az/a/[redacted]",
+        "html": "<a href=\"https://shop.az/a?k=[redacted]"
+      }
+    },
+    {
+      "name": "audit4 N1 url value followed by punctuation",
+      "kind": "props",
+      "input": {
+        "url": "https://shop.az/a?v=x:sk_live_51HabcDEF12345&keep=1",
+        "quoted": "https://shop.az/a?k=\"9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c\"",
+        "hash": "#v=sk_live_51HabcDEF12345)",
+        "wrapped": "https://shop.az/a?v=(eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz)"
+      },
+      "expected": {
+        "url": "https://shop.az/a?v=x:[redacted]&keep=1",
+        "quoted": "https://shop.az/a?k=[redacted]",
+        "hash": "#v=[redacted])",
+        "wrapped": "https://shop.az/a?v=([redacted])"
+      }
+    },
+    {
+      "name": "audit4 N1 ordinary urls in a text are kept",
+      "kind": "props",
+      "input": {
+        "link": "https://shop.az/p?gclid=EAIaIQobChMIabcdefghijklmnopqrstuvwxyz0123456789ABCD_BwE&x=1",
+        "text": "see https://shop.az/p?fbclid=EAIaIQobChMIabcdefghijklmnopqrstuvwxyz0123456789ABCD_BwE, ok",
+        "image": "https://cdn.shop.az/img/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c.jpg",
+        "next": "https://shop.az/p?next=%2Fproducts%2F550e8400e29b41d4a716446655440000",
+        "product": "https://shop.az/p/iphone-15-pro-max-256gb?color=black&utm_source=EAIaIQobChMIabcdefghijklmnopqrstuvwxyz0123456789ABCD_BwE",
+        "short": "https://shop.az/commit/3f9a2b1 and https://shop.az/p/550e8400e29b41d4a716446655440000."
+      },
+      "expected": {
+        "link": "https://shop.az/p?gclid=EAIaIQobChMIabcdefghijklmnopqrstuvwxyz0123456789ABCD_BwE&x=1",
+        "text": "see https://shop.az/p?fbclid=EAIaIQobChMIabcdefghijklmnopqrstuvwxyz0123456789ABCD_BwE, ok",
+        "image": "https://cdn.shop.az/img/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c.jpg",
+        "next": "https://shop.az/p?next=%2Fproducts%2F550e8400e29b41d4a716446655440000",
+        "product": "https://shop.az/p/iphone-15-pro-max-256gb?color=black&utm_source=EAIaIQobChMIabcdefghijklmnopqrstuvwxyz0123456789ABCD_BwE",
+        "short": "https://shop.az/commit/3f9a2b1 and https://shop.az/p/550e8400e29b41d4a716446655440000."
+      }
+    },
+    {
+      "name": "audit4 N1 url followed by punctuation in a label",
+      "kind": "label",
+      "input": "Reset: https://shop.az/a?k=a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7.",
+      "expected": "Reset: https://shop.az/a?k=[redacted]"
+    },
+    {
+      "name": "audit4 N1 url in brackets in a label",
+      "kind": "label",
+      "input": "(https://shop.az/a?v=sk_live_51HabcDEF12345)",
+      "expected": "(https://shop.az/a?v=[redacted])"
+    },
+    {
+      "name": "audit4 N1 traits: url followed by punctuation",
+      "kind": "traits",
+      "input": {
+        "note": "Click https://shop.az/a?k=a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7!",
+        "site": "https://shop.az/a/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c."
+      },
+      "expected": {
+        "note": "Click https://shop.az/a?k=[redacted]",
+        "site": "https://shop.az/a/[redacted]"
+      }
+    },
+    {
+      "name": "audit4 N1 card-like digits inside a hex token",
+      "kind": "props",
+      "input": {
+        "a": "b170aaddf797447674180765e18cd758",
+        "b": "id 780f319f5e47996b7a7e4f470c0b79bcda778d5b170aaddf797447674180765e ok",
+        "c": "card4111111111111111",
+        "d": "4111-1111-1111-1111x",
+        "e": "x.b170aaddf797447674180765e18cd758",
+        "f": "4111 1111 1111 1111 b170aaddf797447674180765e18cd758"
+      },
+      "expected": {
+        "a": "[redacted]",
+        "b": "id [redacted] ok",
+        "c": "card[redacted]",
+        "d": "[redacted]x",
+        "e": "x.b170aaddf[redacted]e18cd758",
+        "f": "[redacted] [redacted]"
+      }
+    },
+    {
+      "name": "audit4 N1 card-like digits inside a hex token in a label",
+      "kind": "label",
+      "input": "token b170aaddf797447674180765e18cd758",
+      "expected": "token [redacted]"
+    }
+  ]
+}

@@ -16,7 +16,6 @@
     "forms": true,
     "outbound": true,
     "contact_links": true,
-    "scroll": false,
     "lifecycle": true,
     "screens": true,
     "deeplinks": true

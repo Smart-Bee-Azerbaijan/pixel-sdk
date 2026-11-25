@@ -7,9 +7,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.atomic.AtomicInteger
 
 internal const val SDK_VERSION = "1.0.0"
 internal const val DEFAULT_ENDPOINT = "https://c.cdnsb.net"
+
+/**
+ * Nə tətbiq (`init`-in `consent` seçimi), nə istifadəçi (`setConsent`) razılıq bildirməyibsə qüvvədə olan dəyər.
+ * `true`: açarın konfiqindəki `consent_default` tətbiq olunur. `false`: heç kim razılıq bildirməyənə qədər hər iki
+ * məqsəd rədd edilmiş sayılır (uzaq konfiq razılığı yalnız aşağı sala bilir, qaldıra bilmir).
+ * Susmaya görə davranışı dəyişmək üçün yalnız bu sətir dəyişdirilir (iOS-da `consentWhenUnstated`).
+ */
+internal const val CONSENT_WHEN_UNSTATED = true
 
 // ---- Asılılıqlar (Android tətbiqi AndroidImpl.kt-dədir; testlərdə saxta tətbiqlər işlədilir) ----
 
@@ -28,15 +37,88 @@ internal interface EventQueue {
     fun peek(limit: Int): List<QueuedEvent>
     fun remove(ids: List<Long>)
     fun size(): Int
-    /** Ən köhnə eventləri ataraq növbəni `max` ölçüsünə endirir. */
+    /** Ən köhnə eventləri ataraq növbəni `max` ölçüsünə (və tətbiqin öz bayt həddinə) endirir. */
     fun trim(max: Int)
     fun clear()
+
+    /**
+     * Növbədəki sətirləri yerində dəyişir (sıra və ID-lər qalır): `transform` hər sətir üçün çağırılır və dəyişməli
+     * olanın yeni halını, toxunulmayan üçün null qaytarır. Reklam razılığı geri alınanda reklam sahələrini diskdən
+     * silmək üçündür.
+     */
+    fun rewrite(transform: (QueuedEvent) -> QueuedEvent?)
 }
 
+/**
+ * HTTP cavabı. `body` uğurlu konfiq cavabının gövdəsi və ya rədd cavabının (məhdud ölçüdə oxunmuş) gövdəsidir.
+ */
 internal class HttpResult(val status: Int, val body: String? = null, val etag: String? = null, val retryAfterSec: Long? = null) {
     val ok: Boolean get() = status in 200..299
-    /** Şəbəkə xətası (status -1), 408, 429 və 5xx: toplu saxlanır və təkrar göndərilir. */
-    val retryable: Boolean get() = status == -1 || status == 408 || status == 429 || status >= 500
+
+    /** Rədd cavabının JSON gövdəsindəki `error` kodu (PROTOCOL.md 5.6); gövdə JSON deyilsə və ya kod yoxdursa null. */
+    val error: String?
+        get() {
+            val text = body ?: return null
+            if (text.length > MAX_ERROR_CHARS || !text.trimStart().startsWith("{")) return null
+            return try {
+                JSONObject(text).opt("error") as? String
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    /**
+     * Toplu sorğusunun nəticəsi (PROTOCOL.md 5.6, «Error codes» cədvəli). Toplu yalnız serverin öz, cədvəldəki kodu
+     * ilə silinir:
+     * - `413`: birdən çox event varsa (gövdədən asılı olmayaraq) toplu bölünür; tək event yalnız [TOO_LARGE_ERRORS]
+     *   kodu ilə atılır;
+     * - `400`: yalnız [BAD_REQUEST_ERRORS] kodu ilə atılır (WAF-ın `{"error":"blocked"}` cavabı ilə yox);
+     * - `403`: `unknown_key` açarı söndürür, [TERMINAL_ERRORS] kodu toplunu atır;
+     * - `404`: yalnız `unknown_key` (açar söndürülür).
+     * Qalan hər şey — tanınmayan kodlu və ya gövdəsiz `4xx` (WAF, ingress, proksi), `422`, `3xx`, `408`, `429`, `5xx`
+     * və şəbəkə xətası — müvəqqətidir: toplu saxlanır.
+     */
+    fun verdict(events: Int): Int {
+        if (ok) return ACCEPTED
+        val code = error
+        return when (status) {
+            413 -> when {
+                events > 1 -> SPLIT
+                code != null && TOO_LARGE_ERRORS.contains(code) -> DROP
+                else -> RETRY
+            }
+            400 -> if (code != null && BAD_REQUEST_ERRORS.contains(code)) DROP else RETRY
+            403 -> when {
+                code == ERROR_UNKNOWN_KEY -> KEY_OFF
+                code != null && TERMINAL_ERRORS.contains(code) -> DROP
+                else -> RETRY
+            }
+            404 -> if (code == ERROR_UNKNOWN_KEY) KEY_OFF else RETRY
+            else -> RETRY
+        }
+    }
+
+    companion object {
+        const val ACCEPTED = 0
+        const val RETRY = 1
+        const val SPLIT = 2
+        const val DROP = 3
+
+        /** Toplu silinir və açar söndürülmüş sayılır (`403 unknown_key`). */
+        const val KEY_OFF = 4
+
+        const val MAX_ERROR_CHARS = 4096
+        const val ERROR_UNKNOWN_KEY = "unknown_key"
+
+        /** `403` cavabının qəti kodları (PROTOCOL.md 5.6, 5.7). */
+        val TERMINAL_ERRORS = setOf("origin_not_allowed", "app_not_allowed", "platform_not_enabled", "unknown_platform", "browser_not_allowed")
+
+        /** `400` cavabının qəti kodları (PROTOCOL.md 5.6). */
+        val BAD_REQUEST_ERRORS = setOf("empty_body", "bad_gzip", "bad_json", "bad_batch", "bad_chars")
+
+        /** Tək eventlik `413` cavabının qəti kodları (PROTOCOL.md 5.6). */
+        val TOO_LARGE_ERRORS = setOf("body_too_large", "context_too_large", "too_many_events")
+    }
 }
 
 internal interface Transport {
@@ -50,6 +132,278 @@ internal interface Env {
     /** Cihaz və tətbiq konteksti: locale, tz, screen, app, os, device (PROTOCOL.md 5.4). */
     fun deviceContext(): JSONObject
     fun log(message: String)
+    /** Tətbiq cihaza ilk dəfə quraşdırılıb və hələ yenilənməyibsə true (köhnə istifadəçiyə AppInstall göndərilmir). */
+    fun firstInstall(): Boolean = true
+
+    /** Reklam identifikatorunun (GAID) mənbəyi; platformada yoxdursa null. */
+    fun adIdLookup(): AdIdLookup? = null
+
+    /**
+     * Bloklaya bilən `work`-u nüvənin axınından kənarda icra edir, bitəndən sonra `done`-u nüvənin axınında çağırır.
+     * Susmaya görə (testlərdə) hər ikisi yerindəcə icra olunur.
+     */
+    fun offload(work: () -> Unit, done: () -> Unit) {
+        work()
+        done()
+    }
+
+    /** `work`-u `delayMs` sonra nüvənin axınında icra edir. Susmaya görə (testlərdə) heç nə etmir. */
+    fun later(delayMs: Long, work: () -> Unit) {}
+
+    /** [0, 1) aralığında təsadüfi ədəd (fasilələrin kənarlaşması üçün). */
+    fun random(): Double = Math.random()
+}
+
+/**
+ * Açıq çağırışın (`setConsent`, təkrar `init`) çağıran axında dərhal qoyduğu qadağalar. Nüvə onları hər şəbəkə
+ * sorğusundan və reklam ID-sinin əlavə edilməsindən əvvəl yoxlayır: razılığın geri alınması işçi axının növbəsini
+ * gözləmir. Hər qadağa onu qoyan çağırış nüvədə icra olunandan sonra götürülür (o vaxt nüvənin öz vəziyyəti artıq yenidir).
+ */
+internal class ConsentGate {
+    private val analytics = AtomicInteger()
+    private val ads = AtomicInteger()
+
+    val analyticsDenied: Boolean get() = analytics.get() > 0
+    val adsDenied: Boolean get() = ads.get() > 0
+
+    fun hold(denyAnalytics: Boolean, denyAds: Boolean) {
+        if (denyAnalytics) analytics.incrementAndGet()
+        if (denyAds) ads.incrementAndGet()
+    }
+
+    fun release(denyAnalytics: Boolean, denyAds: Boolean) {
+        if (denyAnalytics) analytics.decrementAndGet()
+        if (denyAds) ads.decrementAndGet()
+    }
+
+    fun clear() {
+        analytics.set(0)
+        ads.set(0)
+    }
+}
+
+/** Razılıq nişanının ([ConsentTombstone]) saxlandığı kiçik fayl (testlərdə yaddaşdakı saxta). */
+internal interface TombFile {
+    /** Faylın mətni; fayl yoxdursa null. Oxunmursa istisna atır. */
+    fun read(): String?
+    fun write(text: String)
+    fun delete()
+}
+
+/**
+ * Razılığın geri alınmasının nişanı. İşçi axın uzun müddət şəbəkədə ilişə bilər; proses o, `setConsent`-i icra edib
+ * razılığı bazaya yazana qədər ölsə imtina itərdi və köhnə növbə növbəti açılışda göndərilərdi. Ona görə imtina
+ * çağıran axında, işçi axını gözləmədən kiçik bir fayla yazılır və növbəti açılışda ([Core.start]) hər şeydən əvvəl
+ * icra olunur.
+ *
+ * Nişan üç şey saxlayır: istifadəçinin son bildirdiyi razılıq (`setConsent`; yoxdursa `--`), «növbə və identifikatorlar
+ * silinməlidir» (analitika nə vaxtsa rədd edilib) və «reklam sahələri silinməlidir» (reklam nə vaxtsa rədd edilib).
+ * Son iki işarə yapışqandır: imtinadan sonra razılıq yenidən verilsə də aradakı silinmə itmir, saxlanmış razılıq isə
+ * sonuncu çağırışınkı olur (köhnə nişan yeni razılığı geri qaytarmır). İşçi axın bütün gözləyən razılıq çağırışlarını
+ * icra edib razılığı bazaya yazandan sonra fayl silinir. Yarımçıq, boş və ya oxunmayan nişan istifadəçinin hər iki
+ * məqsədi rədd etməsi (`00`) sayılır ([DENIED]; iOS-dakı `ConsentMark.strictest` kimi): `init`-in `consent` seçimi onu
+ * yumşalda bilmir, yalnız yeni `setConsent` əvəz edir.
+ *
+ * Bütün metodlar istənilən axından çağırıla bilər. Fayl əməliyyatları bir neçə baytlıqdır.
+ */
+internal class ConsentTombstone {
+    /** `consent`: saxlanmalı razılıq (`10` kimi iki simvol və ya [CORRUPT]); yalnız silinmə tələb olunursa null. */
+    class State(val consent: String?, val erase: Boolean, val scrub: Boolean)
+
+    private var file: TombFile? = null
+    private var loaded = false
+    private var consent: String? = null
+    private var erase = false
+    private var scrub = false
+
+    /** Nişana yazılmış, amma nüvədə hələ icra olunmamış çağırışların sayı. */
+    private var pending = 0
+
+    /** Fayl əvvəlki prosesdən qalıb və nüvə onu hələ icra etməyib. */
+    private var inherited = false
+
+    private val empty: Boolean get() = consent == null && !erase && !scrub
+
+    /**
+     * Nişan qüvvədədir: icra olunmamış çağırış və ya diskdə qalmış fayl var (o cümlədən çağırışı uğursuz bitmiş və ya
+     * silinə bilməmiş fayl). Belə olanda sırf razılıq verən çağırış da yazılır ki, köhnə fayl onu geri qaytarmasın.
+     */
+    private val active: Boolean get() = pending > 0 || inherited || !empty
+
+    /** Faylın yeri məlum oldu (`init`). Ondan əvvəl qeyd olunmuş imtina varsa indi diskə yazılır. */
+    @Synchronized
+    fun attach(target: TombFile) {
+        file = target
+        loaded = false
+        if (!empty) {
+            load()
+            write()
+        }
+    }
+
+    /**
+     * Çağıran axında: razılıq çağırışını nişana yazır. `consent`: `setConsent`-in dəyəri (təkrar `init`-in
+     * məhdudiyyəti üçün null), `erase` / `scrub`: çağırış analitikanı / reklamı rədd edir. Heç nəyi rədd etməyən
+     * çağırış yalnız gözləyən nişan varsa yazılır (onun razılığını yeniləmək üçün): təkbaşına itməsi təhlükəsizdir.
+     * true qaytarırsa çağırış bitəndə [done] çağırılmalıdır.
+     */
+    @Synchronized
+    fun record(consent: String?, erase: Boolean, scrub: Boolean): Boolean {
+        load()
+        if (!erase && !scrub && !active) return false
+        if (consent != null) this.consent = consent
+        this.erase = this.erase || erase
+        this.scrub = this.scrub || scrub
+        pending++
+        write()
+        return true
+    }
+
+    /** [record]-un true qaytardığı çağırış bitdi. `persisted`: nüvə onu icra edib və razılıq bazadadır. */
+    @Synchronized
+    fun done(persisted: Boolean) {
+        if (pending > 0) pending--
+        settle(persisted)
+    }
+
+    /** İşçi axında, başlanğıcda: icra olunmalı nişan; yoxdursa null. */
+    @Synchronized
+    fun snapshot(): State? {
+        load()
+        return if (empty) null else State(consent, erase, scrub)
+    }
+
+    /**
+     * İşçi axında: nüvə nişanı icra etdi və ya gecikmiş razılıq yazısı alındı. `persisted`: razılıq bazadadır.
+     * Gözləyən çağırış qalmayıbsa fayl silinir.
+     */
+    @Synchronized
+    fun settle(persisted: Boolean) {
+        if (!persisted) return
+        inherited = false
+        if (pending > 0 || empty) return
+        try {
+            file?.delete()
+            consent = null
+            erase = false
+            scrub = false
+        } catch (t: Throwable) {
+            // Fayl silinmədi: vəziyyət saxlanır, növbəti razılıq çağırışı onun üstünə yazacaq.
+        }
+    }
+
+    /**
+     * Baza pozulub və silinir: saxlanmış razılıq (bəlkə də imtina) itir. Bu, «heç vaxt bildirilməyib» sayılmamalıdır,
+     * ona görə baza silinməzdən əvvəl nişana [CORRUPT] yazılır. Gözləyən `setConsent` çağırışının dəyəri daha təzədir
+     * və toxunulmur.
+     */
+    @Synchronized
+    fun corrupted() {
+        load()
+        if (consent == null) consent = CORRUPT
+        erase = true
+        scrub = true
+        write()
+    }
+
+    /** Yalnız testlər üçün: yaddaşdakı vəziyyəti atır (fayla toxunmur), yəni prosesin ölümünü təqlid edir. */
+    @Synchronized
+    fun reset() {
+        file = null
+        loaded = false
+        consent = null
+        erase = false
+        scrub = false
+        pending = 0
+        inherited = false
+    }
+
+    /** Əvvəlki prosesdən qalmış nişanı bir dəfə oxuyur və yaddaşdakı (daha yeni) vəziyyətlə birləşdirir. */
+    private fun load() {
+        val source = file ?: return
+        if (loaded) return
+        loaded = true
+        val text = try {
+            source.read() ?: return
+        } catch (t: Throwable) {
+            ""
+        }
+        val saved = parse(text)
+        inherited = true
+        if (consent == null) consent = saved.consent
+        erase = erase || saved.erase
+        scrub = scrub || saved.scrub
+    }
+
+    private fun write() {
+        try {
+            file?.write("$VERSION ${consent ?: NONE} ${if (erase) 1 else 0} ${if (scrub) 1 else 0}\n")
+        } catch (t: Throwable) {
+            // Fayl yazılmadı: imtina yaddaşda ([ConsentGate]) qüvvədədir, nüvə onu bazaya özü yazacaq.
+        }
+    }
+
+    companion object {
+        private const val VERSION = "1"
+        private const val NONE = "--"
+
+        /**
+         * Baza pozulub (silinib) və saxlanmış razılıq itib: hər iki məqsəd `setConsent` yenidən bildirənə qədər rədd
+         * edilmiş sayılır. Bazadakı yararlı dəyərin üstünə heç vaxt yazılmır (bax [Core.start]).
+         */
+        const val CORRUPT = "??"
+
+        /** Yarımçıq / boş / oxunmayan nişanın razılıq dəyəri: istifadəçinin hər iki məqsədi rədd etməsi. */
+        const val DENIED = "00"
+
+        private val CONSENT_RE = Regex("^[01]{2}$")
+
+        fun parse(text: String): State {
+            val parts = text.trim().split(' ')
+            val flags = setOf("0", "1")
+            if (parts.size != 4 || parts[0] != VERSION || parts[2] !in flags || parts[3] !in flags) return State(DENIED, true, true)
+            val consent = when {
+                parts[1] == NONE -> null
+                parts[1] == CORRUPT || CONSENT_RE.matches(parts[1]) -> parts[1]
+                else -> return State(DENIED, true, true)
+            }
+            return State(consent, parts[2] == "1", parts[3] == "1")
+        }
+    }
+}
+
+/** Platformanın qaytardığı reklam identifikatoru və istifadəçinin "reklam izləməsini məhdudlaşdır" seçimi. */
+internal class AdInfo(val id: String?, val limitAdTracking: Boolean)
+
+/**
+ * Reklam identifikatorunu oxuyur. Çağırış bloklayır və istisna ata bilər, ona görə yalnız [Env.offload] ilə işlədilir.
+ * Mənbə yoxdursa (tətbiqdə Google kitabxanası yoxdur) null qaytarır.
+ */
+internal fun interface AdIdLookup {
+    fun read(): AdInfo?
+}
+
+/**
+ * Yaddaşdakı müvəqqəti qat: yazılar [commit] çağırılana qədər diskə getmir.
+ * Razılıq hələ məlum deyilkən (ilk konfiq cavabına qədər) və ya açar söndürülübsə identifikatorlar yalnız burada yaşayır.
+ */
+internal class PendingStore(private val parent: Store) : Store {
+    private val values = HashMap<String, String?>()
+
+    override fun get(key: String): String? = if (values.containsKey(key)) values[key] else parent.get(key)
+
+    override fun put(key: String, value: String) {
+        values[key] = value
+    }
+
+    override fun remove(key: String) {
+        values[key] = null
+    }
+
+    fun commit() {
+        for ((key, value) in values) if (value == null) parent.remove(key) else parent.put(key, value)
+        values.clear()
+    }
 }
 
 // ---- Uzaqdan konfiq (PROTOCOL.md 8) -----------------------------------------------------------
@@ -67,19 +421,36 @@ internal class RemoteConfig(
     val flushIntervalMs: Long = 30_000,
     val maxBatch: Int = 50,
     val maxQueue: Int = 1000,
+    /** SDK-nın ən son buraxılmış versiyası (`sdk_latest`); sahə yoxdursa null. */
+    val sdkLatest: String? = null,
 ) {
     /** Konfiqdə açıq şəkildə `false` verilməyibsə avtomatik event açıqdır. */
     fun auto(name: String): Boolean = auto[name] != false
 
     companion object {
         val DEFAULT = RemoteConfig()
-        val DISABLED = RemoteConfig(enabled = false, ttlMs = 86_400_000)
+
+        // Serverdən gələn dəyərlərin təhlükəsiz hədləri (iOS ilə eynidir): səhv və ya zərərli konfiq cihazı
+        // saniyədə bir sorğuya, tək eventlik toplulara və ya hədsiz növbəyə məcbur edə bilməz.
+        const val MIN_TTL_S = 60L
+        const val MAX_TTL_S = 7 * 86_400L
+        const val MIN_SESSION_S = 60L
+        const val MAX_SESSION_S = 86_400L
+        const val MIN_INTERVAL_S = 10L
+        const val MAX_INTERVAL_S = 3600L
+        const val MIN_BATCH = 10
+        const val MAX_BATCH = 100
+        const val MIN_QUEUE = 10
+        const val MAX_QUEUE = 5000
 
         /** Tanınmayan sahələr ötürülür; yararsız JSON üçün null. */
         fun parse(json: String?): RemoteConfig? {
             if (json.isNullOrEmpty()) return null
             return try {
                 val o = JSONObject(json)
+                // `consent_default` yoxdursa susmaya görə dəyərlər qalır. Varsa, məqsəd yalnız JSON `true` ilə açıqdır:
+                // obyekt olmayan dəyər, çatışmayan və ya boolean olmayan üzv razılıq sayılmır (PROTOCOL.md 8).
+                val stated = o.has("consent_default")
                 val consent = o.optJSONObject("consent_default")
                 val flush = o.optJSONObject("flush")
                 val autoObj = o.optJSONObject("auto")
@@ -88,16 +459,17 @@ internal class RemoteConfig(
                 RemoteConfig(
                     enabled = o.optBoolean("enabled", true),
                     sample = o.optDouble("sample", 1.0).let { if (it.isNaN()) 1.0 else it.coerceIn(0.0, 1.0) },
-                    ttlMs = o.optLong("ttl_s", 3600).coerceIn(60, 7 * 86_400) * 1000,
-                    sessionTimeoutMs = o.optLong("session_timeout_s", 1800).coerceIn(60, 86_400) * 1000,
-                    consentAnalytics = consent?.optBoolean("analytics", true) ?: true,
-                    consentAds = consent?.optBoolean("ads", true) ?: true,
+                    ttlMs = o.optLong("ttl_s", 3600).coerceIn(MIN_TTL_S, MAX_TTL_S) * 1000,
+                    sessionTimeoutMs = o.optLong("session_timeout_s", 1800).coerceIn(MIN_SESSION_S, MAX_SESSION_S) * 1000,
+                    consentAnalytics = if (stated) consent?.opt("analytics") == true else true,
+                    consentAds = if (stated) consent?.opt("ads") == true else true,
                     auto = auto,
                     blockedEvents = strings(o.optJSONArray("blocked_events")),
                     stripParams = strings(o.optJSONArray("strip_params")).map { it.lowercase(Locale.ROOT) }.toSet(),
-                    flushIntervalMs = (flush?.optLong("interval_s", 30) ?: 30).coerceIn(1, 3600) * 1000,
-                    maxBatch = (flush?.optInt("max_batch", 50) ?: 50).coerceIn(1, 100),
-                    maxQueue = (flush?.optInt("max_queue", 1000) ?: 1000).coerceIn(1, 100_000),
+                    flushIntervalMs = (flush?.optLong("interval_s", 30) ?: 30).coerceIn(MIN_INTERVAL_S, MAX_INTERVAL_S) * 1000,
+                    maxBatch = (flush?.optInt("max_batch", 50) ?: 50).coerceIn(MIN_BATCH, MAX_BATCH),
+                    maxQueue = (flush?.optInt("max_queue", 1000) ?: 1000).coerceIn(MIN_QUEUE, MAX_QUEUE),
+                    sdkLatest = o.opt("sdk_latest") as? String,
                 )
             } catch (e: Exception) {
                 null
@@ -118,17 +490,236 @@ internal object Util {
     val NAME_RE = Regex("^[A-Za-z][A-Za-z0-9_]{0,63}$")
     val ID_RE = Regex("^[A-Za-z0-9_.:-]{1,64}$")
     val KEY_RE = Regex("^[a-z0-9]{8,16}$")
+    private val WRAPPER_RE = Regex("^[a-z][a-z0-9-]{0,31}$")
 
-    private val FORBIDDEN = setOf("email", "phone", "password", "pass", "token", "card", "card_number", "cvv", "pin", "fin")
-    private val STRIP = setOf(
-        "token", "password", "pass", "email", "phone", "access_token", "id_token", "refresh_token", "code",
-        "secret", "client_secret", "auth", "api_key", "apikey", "otp", "reset_token",
+    /**
+     * Keçidin ən böyük uzunluğu (tracker: URL_IN_MAX). Bundan uzun dərin keçid nəzərə alınmır; [cleanUrl] bundan uzun ünvanı
+     * təmizləməzdən əvvəl qısaldır (bax [shorten]).
+     */
+    const val MAX_URL_LENGTH = 8192
+    const val REDACTED = "[redacted]"
+
+    // ---- Həssas adlar (query parametrləri, yol hissələri, `props` / `traits` açarları) ----
+    //
+    // Qaydalar və siyahılar veb tracker-dəki (tracker/src/tracker.js) qaydalarla hərf-hərf eynidir və üç SDK-da ortaq
+    // vektorlarla yoxlanır (spec/vectors/sanitize-url.json, sanitize-props.json, identity.json, campaign.json).
+    // Ad əvvəlcə sözlərə ayrılır (bax [nameWords]). «Hissə» siyahıları sözün istənilən yerində axtarılır; qısa və
+    // çoxmənalı sözlər («söz» siyahıları) yalnız bütöv söz kimi tutulur, yoxsa `inside`, `hotel`, `company`, `keyword`,
+    // `author` kimi adlar da tutulardı.
+
+    /** Query parametri (tracker: PARAM_RE): sözün içində axtarılan hissələr. */
+    private val PARAM_PARTS = listOf(
+        "token", "passw", "pasword", "passphrase", "passport", "pasport", "passcode", "pwd", "psw", "secret", "session", "sessid", "jwt",
+        "msisdn", "iban", "signature", "mail", "apikey", "credential", "csrf", "xsrf", "oauth", "authoris", "authoriz", "authent",
+        "bearer", "cvv", "cvc", "saml", "checkword", "cardnumber", "authcode", "smscode", "otpcode", "resetcode", "accesskey",
+        "privatekey", "homephone", "mobilephone", "parol", "sifre", "shifre", "eposta", "poct",
     )
-    private val ORIGIN_RE = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*")
-    private val USERINFO_RE = Regex("//[^/@]*@")
-    private val EMAIL_RE = Regex("[^/?&=#\\s]+(?:@|%40)[^/?&=#\\s]+\\.[A-Za-z]{2,}")
-    private val CAMPAIGN = listOf("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content")
-    val CLICK_IDS = listOf("fbclid", "gclid", "gbraid", "wbraid", "ttclid", "msclkid")
+
+    /** Telefon adları: söz bu hissələrdən biri ilə başlayır (`phone`, `phoneNumber`, `telephone`, `telefon`; `iphone` yox). */
+    private val PHONE_PREFIXES = listOf("phone", "telephone", "cellphone", "telefon")
+
+    /** Telefon adları: sözün istənilən yerində axtarılan bitişik yazılışlar (yalnız `props` / `traits` açarları üçün). */
+    private val PHONE_KEY_PARTS = listOf("homephone", "mobilephone")
+
+    /** Query parametri (tracker: PARAM_RE): bütöv söz kimi axtarılanlar. */
+    private val PARAM_WORDS = setOf(
+        "pass", "sig", "sign", "auth", "sid", "otp", "code", "kod", "kodu", "key", "tel", "mobile", "card", "pan", "fin", "pin", "ssn",
+        "hash", "nonce", "reset", "activation", "confirm", "verify", "invite", "unsubscribe", "ticket", "magic", "pw", "cc", "mobil",
+        "nomre", "whatsapp", "kart",
+    )
+
+    /** Sirr olmayan «… code / kod / kodu» adları (tracker: SAFE_NAME_RE): bu sözlərdən birinin ardınca gələn kod sözü saxlanır. */
+    private val SAFE_CODE_WORDS = setOf(
+        "promo", "coupon", "discount", "country", "lang", "language", "currency", "postal", "post", "zip", "region", "area",
+        "product", "item", "color", "colour", "error", "status", "sku", "bar", "qr", "referral", "invite", "ref", "store", "model",
+        "partner", "category", "endirim", "mehsul", "olke",
+    )
+    private val CODE_WORDS = setOf("code", "kod", "kodu")
+
+    /** Çoxmənalı söz və ardınca gələn təsvir sözü (tracker: SAFE_NAME_RE; `card_type`, `phone_model`): cüt sirr deyil. */
+    private val DESCRIBED_WORDS = setOf("card", "kart", "ticket", "phone", "mobile", "pin", "pan", "pass", "fin")
+    private val DESCRIBING_WORDS = setOf("type", "model", "brand", "os", "size", "color", "colour", "count")
+
+    /** Dəyəri ən çoxu 2 simvol olan parametrdə bayraq sayılan sözlər (tracker: FLAG_NAME_RE; `mobile=1`, `cc=az`). */
+    private val FLAG_NAME_WORDS = setOf("mobile", "mobil", "cc")
+
+    /** Dəyərinə sirr qaydaları tətbiq olunmayan utm parametrləri (tracker: UTM); `utm_token` kimi adlar adi parametrdir. */
+    private val UTM_NAMES = setOf("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id")
+
+    /** `props` / `traits` açarı (tracker: FORBIDDEN): kiçik hərflə yazılmış ad dəqiq budursa dəyər heç vaxt göndərilmir. */
+    private val FORBIDDEN_KEYS = setOf("email", "phone", "password", "pass", "token", "card", "card_number", "cvv", "pin", "fin", "kart")
+
+    /** `props` / `traits` açarı (tracker: SECRET_PARTS): sözün içində axtarılan sirr hissələri. */
+    private val SECRET_KEY_PARTS = listOf(
+        "passw", "pasword", "passphrase", "passport", "pasport", "passcode", "pwd", "psw", "secret", "cvv", "cvc", "iban", "cardnumber",
+        "apikey", "accesskey", "privatekey", "sessionid", "sessid", "csrf", "xsrf", "bearer", "credential", "parol", "sifre", "shifre",
+    )
+
+    /** Adın istənilən yerində açarı həmişə atan bütöv sözlər (tracker: SECRET_WORDS). */
+    private val SECRET_KEY_WORDS = setOf("authorization", "authorisation")
+
+    /** Qısa, çoxmənalı sözlər (tracker: LAST_WORDS): yalnız adın son sözü olanda (və ya ardınca təsvir sözü gələndə) sirdir. */
+    private val LAST_KEY_WORDS = setOf("pass", "pin", "fin", "otp", "totp", "jwt", "ssn", "pan", "cookie", "pw", "auth", "session", "sid")
+
+    /**
+     * Dəyər bayraq (`true` / `false` / null) olmayanda açarı atan adlar (tracker: FLAG_PARTS, FLAG_WORDS, LICENSE_WORDS,
+     * NUMBER_OWNER_WORDS): sözün içində axtarılan hissələr, bütöv sözlər, `license key` cütü və ardınca nömrə sözü
+     * ([PHONE_DETAIL_WORDS]) gələn sahib sözləri (`cc_number`, `account_number`, `hesab_nomresi`).
+     */
+    private val FLAG_KEY_PARTS = listOf("signature", "cardholder", "creditcard", "pinkod")
+    private val FLAG_KEY_WORDS = setOf("sig", "nonce")
+    private val LICENSE_WORDS = setOf("license", "licence")
+    private val NUMBER_OWNER_WORDS = setOf("cc", "account", "hesab")
+
+    /** Sirr sözündən sonra gələndə açarı yenə sirr edən təsvir sözləri (tracker: SECRET_DETAIL_WORDS; `otp_code`, `cookie_value`). */
+    private val SECRET_DETAIL_WORDS = setOf("number", "num", "no", "nomre", "nomresi", "code", "kod", "kodu", "value", "word", "phrase")
+    private val CARD_WORDS = setOf("card", "kart")
+    private val CARD_DETAIL_WORDS = setOf("number", "num", "no", "holder", "exp", "expiry", "cvv", "cvc", "pan", "nomre", "nomresi")
+
+    /** `card` sözündən əvvəl gələndə onu ödəniş kartı olmayan əşya edən sözlər (tracker: SAFE_CARD_WORDS; `gift_card`). */
+    private val SAFE_CARD_WORDS = setOf("video", "memory", "gift", "graphics", "sd", "sim", "sound", "flash", "greeting", "business", "post")
+
+    /** `key` sözündən əvvəl gələndə açarı sirr edən sözlər (`api_key`, `accessKey`, `private_key`, `auth_key`). */
+    private val KEY_OWNER_WORDS = setOf("api", "access", "private", "auth")
+
+    /** `code` / `kod` sözündən əvvəl gələndə onu birdəfəlik kod edən sözlər (tracker: CODE_OWNER_WORDS; `sms_code`). */
+    private val CODE_OWNER_WORDS = setOf(
+        "sms", "verification", "verify", "otp", "auth", "security", "confirm", "confirmation", "activation", "reset", "login", "access",
+        "pin", "pass", "secret", "recovery", "backup", "mfa", "tfa", "twofa", "fa", "tesdiq", "dogrulama",
+    )
+
+    /** E-poçt adları (tracker: MAIL_PARTS): sözün istənilən yerində axtarılan hissələr. */
+    private val MAIL_KEY_PARTS = listOf("mail", "eposta", "poct")
+
+    /** `props` / `traits` açarı (tracker: PHONE_WORDS): telefon adı sayılan bütöv sözlər ([PHONE_PREFIXES]-dən əlavə). */
+    private val PHONE_KEY_WORDS = setOf("tel", "msisdn", "mobile", "gsm", "mobil", "nomre", "whatsapp")
+    private val PHONE_DETAIL_WORDS = setOf("number", "num", "no", "nomre", "nomresi")
+
+    /**
+     * E-poçt / telefon sözündən sonra gələndə açarı əlaqə məlumatı olmayan ayar edən sözlər (tracker: CONTACT_DETAIL_WORDS;
+     * `email_template`, `mailing_list`) və belə açarın əlaqə məlumatı olmayan dəyərləri (tracker: CONTACT_VALUES;
+     * `mobile: "ios"`); bax [contactLabel].
+     */
+    private val CONTACT_DETAIL_WORDS = setOf("template", "campaign", "provider", "list", "type", "status", "verified", "enabled", "optin", "consent")
+    private val CONTACT_VALUES = setOf("ios", "android", "web", "yes", "no", "true", "false")
+
+    /** Bundan kiçik (mütləq qiymətcə) ədəd sayğacdır, sirr deyil (tracker: SMALL_NUMBER; `emails_sent: 5`). */
+    private const val SMALL_NUMBER = 100000.0
+
+    /** Bundan uzun mətn e-poçt / telefon namizədi deyil (tracker: CONTACT_MAX). */
+    const val CONTACT_MAX = 320
+
+    /**
+     * Yol ipucu (tracker: HINT_STEMS, HINT_WORDS, HINT_PAIRS): hissənin birinci və ya sonuncu sözü bu köklərdən biri ilə
+     * başlayırsa və ya bu sözlərdən biridirsə, sonrakı iki hissə sirr kimi yoxlanır (bax [pathHint]).
+     */
+    private val HINT_STEMS = listOf(
+        "reset", "forgot", "passw", "pasword", "sifre", "shifre", "parol", "unuttum", "tesdiq", "dogrula", "aktivle", "aktivas",
+        "signin", "login", "verify", "verific", "confirm", "activat", "magic", "invit", "unsubscribe", "token", "secret", "recover",
+        "restore", "signature",
+    )
+    private val HINT_WORDS = setOf("otp", "pwd", "psw", "sso", "msisdn", "iban", "auth", "oauth", "callback", "session", "join", "mfa", "2fa")
+    private val HINT_PAIRS = setOf("signin", "login")
+
+    /**
+     * Sifariş təsdiqi səhifələri (tracker: SOFT_STEMS, ORDER_WORDS, PAY_WORDS). Hissənin ipucu yalnız təsdiq kökündən
+     * (`confirm…`, `tesdiq…`) gəlirsə ipucu qalır, amma sifariş kontekstində — hissənin özündə [ORDER_WORDS] sözü var
+     * (`order-confirmation`), hissə təkcə təsdiq sözüdür və qonşu (əvvəlki / sonrakı) hissə [ORDER_WORDS] sözüdür
+     * (`/order/confirm/…`), ya da hissə təkcə `confirmation` sözüdür — sonrakı iki hissədə sifariş nömrəsinə bənzəyən hissə
+     * (bax [refShaped]: `2026112500123`, `AZ-778899`) ipucusuz yoxlanır. Qarışıq hərfli token (`/order/confirm/Zq7Lm2Xp9Rt4`)
+     * gizlədilir. Ödəniş sözünün ([PAY_WORDS]) kontekstində 6–8 rəqəmlik kod (bax [payCode]: təsdiq kodu uzunluğu) sifariş
+     * nömrəsi sayılmır (`/payment/confirmation/879609`).
+     */
+    private val SOFT_STEMS = setOf("confirm", "tesdiq")
+    private val ORDER_WORDS = setOf("order", "orders", "checkout", "payment", "payments", "booking", "purchase", "sifaris", "odenis")
+    private val PAY_WORDS = setOf("payment", "payments", "odenis")
+
+    /**
+     * Təsdiq kökünün ipucu altında dəyəri ipucusuz yoxlanan query parametrləri: adın bütün sözləri bu siyahıdadır (`order_id`,
+     * `ref`) və dəyər sifariş nömrəsinə bənzəyir (bax [refShaped]). Yol sifariş kontekstində deyilsə adda [ORDER_NAME_WORDS]
+     * sözü də olmalıdır.
+     */
+    private val ORDER_PARAM_WORDS = setOf("order", "booking", "ref", "reference", "number", "id")
+    private val ORDER_NAME_WORDS = setOf("order", "booking")
+
+    /** Telefon sözü olan hissədən (`/phone/`, `/tel/`) birbaşa sonrakı hissə yalnız 7–15 rəqəmdirsə gizlədilir (tracker: PHONE_HINT_WORDS). */
+    private val PHONE_HINT_WORDS = setOf("phone", "telephone", "tel", "telefon", "mobile", "mobil", "nomre", "gsm", "whatsapp")
+
+    /** Statik fayl uzantıları (tracker: STATIC_EXT): belə adlı yol hissəsi ipucu qaydası ilə gizlədilmir; `@2x.png` sonluqlu şəkil adı e-poçt sayılmır. */
+    private val STATIC_EXT = setOf(
+        "js", "mjs", "css", "map", "png", "jpg", "jpeg", "gif", "svg", "webp", "avif", "ico", "woff", "woff2", "ttf", "otf", "eot",
+    )
+
+    /** Tanınan API açarı önləri (tracker: KEY_PREFIX_RE): ardınca ən azı 10 base64url simvolu gəlirsə sirdir. */
+    private val KEY_PREFIXES = listOf(
+        "sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_", "ghp_", "gho_", "github_pat_", "glpat-", "xoxb-", "xoxp-", "AKIA", "AIza",
+    )
+
+    /** `@` kimi oxunan tam enli işarə (U+FF20; tracker: WIDE_AT): e-poçt axtarışında `@` sayılır. */
+    private const val WIDE_AT = '＠'
+
+    /** İstifadəçi ID-sinin əvvəlindən atılan önlər (tracker: ID_PREFIXES). */
+    private val ID_PREFIXES = listOf("tel:", "phone:", "sms:", "mailto:", "email:")
+
+    /** URL kimi təmizlənən `props` / `traits` mətn dəyərinin ən böyük uzunluğu; bundan uzun URL dəyəri tam gizlədilir. */
+    const val MAX_TEXT_URL = 8192
+
+    /** İstifadəçi ID-sinin ən böyük uzunluğu (UTF-16 vahidi ilə, veb tracker-dəki kimi). */
+    const val MAX_USER_ID = 128
+
+    private val LINK_RE = Regex("^([a-zA-Z][a-zA-Z0-9+.-]*)://")
+
+    /** `scheme://` şəklində yazılsa belə keçid sayılmayan sxemlər: telefon, ünvan, fayl və məzmun istinadları. */
+    private val NOT_LINKS = setOf(
+        "tel", "sms", "smsto", "mms", "mmsto", "mailto", "geo", "content", "file", "data", "intent",
+        "android.resource", "android-app", "blob", "javascript", "about",
+    )
+
+    /** Kampaniya dəyərinin ən böyük uzunluğu, UTF-16 vahidi ilə (veb tracker və sxemdəki hədd: 512). */
+    const val MAX_CAMPAIGN_VALUE = 512
+    val CAMPAIGN = listOf("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content")
+    val CLICK_IDS = listOf(
+        "fbclid", "gclid", "gbraid", "wbraid", "ttclid", "msclkid", "dclid", "twclid", "yclid", "li_fat_id",
+        "sccid", "rdt_cid", "_gl", "mc_eid", "srsltid", "epik", "gad_source",
+    )
+
+    private val VERSION_RE = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)$")
+
+    /** Sıfır GAID: istifadəçi reklam ID-sini silib və ya `AD_ID` icazəsi yoxdur. */
+    private val ZERO_ID_RE = Regex("^[0-]+$")
+
+    /** `MAJOR.MINOR.PATCH` versiyasının ədədləri; format başqadırsa null. */
+    private fun version(text: String?): List<Int>? {
+        val parts = VERSION_RE.matchEntire(text ?: return null)?.groupValues ?: return null
+        return parts.drop(1).map { it.toIntOrNull() ?: return null }
+    }
+
+    /**
+     * `candidate` versiyası `current`-dən yenidirsə true. Hissələr ədəd kimi müqayisə olunur (1.10.0 > 1.9.0);
+     * yararsız dəyər yeni sayılmır.
+     */
+    fun newerVersion(candidate: String?, current: String): Boolean {
+        val a = version(candidate) ?: return false
+        val b = version(current) ?: return false
+        for (i in 0 until 3) if (a[i] != b[i]) return a[i] > b[i]
+        return false
+    }
+
+    /**
+     * Göndərilə bilən GAID və ya null: "reklam izləməsini məhdudlaşdır" açıqdırsa, dəyər boşdursa,
+     * yalnız sıfırlardan ibarətdirsə və ya identifikatora oxşamırsa GAID yoxdur.
+     */
+    fun adId(info: AdInfo?): String? {
+        if (info == null || info.limitAdTracking) return null
+        val id = info.id?.trim() ?: return null
+        return if (ID_RE.matches(id) && !ZERO_ID_RE.matches(id)) id else null
+    }
+
+    /** Örtüyün adı sxemdəki şablona uyğundursa özü, yoxsa null (yararsız ad göndərilmir). */
+    fun wrapperName(name: String?): String? = name?.takeIf { WRAPPER_RE.matches(it) }
+
+    /** Örtüyün versiyası: 1–32 simvol; boşdursa null. */
+    fun wrapperVersion(version: String?): String? = version?.let { text(it.trim(), 32) }?.takeIf { it.isNotEmpty() }
 
     fun iso(millis: Long): String {
         val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
@@ -147,11 +738,161 @@ internal object Util {
         return sb.toString()
     }
 
-    /** PROTOCOL.md 6.1: boşluqlar silinir, kiçik hərfə çevrilir. */
-    fun normalizeEmail(email: String): String = email.trim().lowercase(Locale.ROOT)
+    /** Başdakı və sondakı boşluqları silir; boşluq JavaScript-in `\s` sinfidir (bax [isSpace]), `String.trim()` yox. */
+    fun jsTrim(text: String): String {
+        var start = 0
+        var end = text.length
+        while (start < end && isSpace(text[start])) start++
+        while (end > start && isSpace(text[end - 1])) end--
+        return if (start == 0 && end == text.length) text else text.substring(start, end)
+    }
+
+    /** PROTOCOL.md 6.1: başdakı və sondakı boşluqlar silinir, kiçik hərfə çevrilir. */
+    fun normalizeEmail(email: String): String = jsTrim(email).lowercase(Locale.ROOT)
 
     /** PROTOCOL.md 6.1: yalnız rəqəmlər. */
     fun normalizePhone(phone: String): String = phone.filter { it in '0'..'9' }
+
+    /** `^[^@\s]+@[^@\s]+\.[^@\s]+$` (veb tracker ilə eyni qayda), regex-siz. */
+    fun isEmailShaped(text: String): Boolean {
+        val at = text.indexOf('@')
+        if (at <= 0 || text.indexOf('@', at + 1) >= 0) return false
+        for (ch in text) if (isSpace(ch)) return false
+        val domain = text.substring(at + 1)
+        for (i in 1 until domain.length - 1) if (domain[i] == '.') return true
+        return false
+    }
+
+    /**
+     * İstifadəçi ID-si telefon nömrəsinə oxşayırsa onun rəqəmləri (`phone_sha256` ilə eyni normallaşdırma: yalnız
+     * rəqəmlər, başdakı `+` atılır), yoxsa null. Qayda veb tracker-in `phoneDigits` funksiyası ilə eynidir ki, eyni
+     * istifadəçi bütün platformalarda eyni `user_id` alsın: mətn `^\+?[0-9(][0-9\s().-]{5,24}$` şəklindədir və
+     * 7–15 rəqəmi var; telefon sayılır: `+` ilə başlayan, 10 və daha çox rəqəmli və ya `0` ilə başlayan 9+ rəqəmli
+     * (qısa ədədi ID-lər, məsələn bazanın sıra nömrəsi, telefon sayılmır).
+     */
+    fun userIdPhone(text: String): String? {
+        val start = if (text.startsWith("+")) 1 else 0
+        val body = text.length - start
+        if (body < 6 || body > 25) return null
+        val first = text[start]
+        if (first !in '0'..'9' && first != '(') return null
+        val digits = StringBuilder(16)
+        for (i in start until text.length) {
+            val c = text[i]
+            if (c in '0'..'9') {
+                digits.append(c)
+            } else if (!(c == '(' || c == ')' || c == '.' || c == '-' || isSpace(c))) {
+                return null
+            }
+        }
+        val n = digits.length
+        if (n < 7 || n > 15) return null
+        return if (start == 1 || n >= 10 || (digits[0] == '0' && n >= 9)) digits.toString() else null
+    }
+
+    /**
+     * `identify`-ın göndərilən `user_id`-si (veb tracker-in `identify` funksiyası ilə eyni qayda); ID yararsızdırsa null.
+     * Boş və ya [MAX_USER_ID]-dən uzun (UTF-16 vahidi ilə, NUL silinməzdən əvvəl) ID rədd olunur. E-poçt ünvanına
+     * (boşluqlar silinib kiçik hərfə çevriləndən sonra) və ya telefon nömrəsinə (bax [userIdPhone]) oxşayan ID açıq
+     * göndərilmir və saxlanmır: yerinə normallaşdırılmış dəyərin SHA-256-sı işlədilir. Qalan ID olduğu kimi
+     * (yalnız NUL silinir, kənar boşluqlar qalır) göndərilir.
+     */
+    fun userId(id: String?): String? {
+        if (id.isNullOrEmpty() || id.length > MAX_USER_ID) return null
+        val raw = text(id)
+        var plain = jsTrim(raw)
+        // Başdakı `tel:` / `phone:` / `sms:` / `mailto:` / `email:` atılır (tracker: ID_PREFIXES; yalnız ASCII hərfləri).
+        for (prefix in ID_PREFIXES) {
+            if (prefixed(plain, prefix)) {
+                plain = jsTrim(plain.substring(prefix.length))
+                break
+            }
+        }
+        // JWT giriş sirridir, identifikator deyil: rədd olunur.
+        if (isJwt(plain)) return null
+        // Tam enli `＠` (U+FF20) `@` sayılır.
+        var mail = plain.lowercase(Locale.ROOT).replace(WIDE_AT, '@')
+        if (!isEmailShaped(mail) && mail.indexOf('@') > 0) mail = emailIn(mail)
+        if (isEmailShaped(mail)) return sha256(mail)
+        val phone = userIdPhone(plain)
+        if (phone != null) return sha256(phone)
+        // Kart nömrəsinə bənzəyən ID (15–19 rəqəm, Luhn): rəqəmlərinin hash-i göndərilir.
+        if (cardNumber(plain)) return sha256(normalizePhone(plain))
+        return if (raw.isEmpty()) null else raw
+    }
+
+    /**
+     * İstifadəçi ID-sinin (kiçik hərflə) içindəki e-poçt ünvanı; yoxdursa mətnin özü (tracker: `emailIn`). Mətn boşluq və
+     * `< > ( ) [ ] " ' , ; :` simvollarına görə bölünür: ilk e-poçta bənzəyən hissə götürülür; yoxdursa bir neçə `@` olan
+     * hissədə (`user@shop.az@tenant`) `@` ilə ayrılmış qonşu iki parçadan alınan ilk ünvan.
+     */
+    private fun emailIn(mail: String): String {
+        val tokens = ArrayList<String>()
+        var start = 0
+        for (i in 0..mail.length) {
+            if (i < mail.length && !isIdSeparator(mail[i])) continue
+            if (i > start) tokens.add(mail.substring(start, i))
+            start = i + 1
+        }
+        for (token in tokens) if (isEmailShaped(token)) return token
+        for (token in tokens) {
+            var from = 0
+            var at = token.indexOf('@')
+            while (at >= 0) {
+                val next = token.indexOf('@', at + 1)
+                val pair = token.substring(from, if (next < 0) token.length else next)
+                if (isEmailShaped(pair)) return pair
+                from = at + 1
+                at = next
+            }
+        }
+        return mail
+    }
+
+    private fun isIdSeparator(c: Char): Boolean =
+        isSpace(c) || c == '<' || c == '>' || c == '(' || c == ')' || c == '[' || c == ']' || c == '"' || c == '\'' || c == ',' || c == ';' || c == ':'
+
+    /**
+     * NUL simvolunu (U+0000) silir və mətni ən çox `limit` Unicode kod nöqtəsinə kəsir. Sxemdəki uzunluq
+     * hədləri kod nöqtəsi ilə sayılır; surroqat cütü ortadan bölünmür (iOS ilə eyni qayda).
+     */
+    fun text(value: String, limit: Int = Int.MAX_VALUE): String {
+        if (value.length <= limit && value.indexOf('\u0000') < 0) return value
+        val out = StringBuilder(minOf(value.length, 4096))
+        var kept = 0
+        var i = 0
+        while (i < value.length) {
+            val point = value.codePointAt(i)
+            i += Character.charCount(point)
+            if (point == 0) continue
+            if (kept >= limit) break
+            out.appendCodePoint(point)
+            kept++
+        }
+        return out.toString()
+    }
+
+    fun utf8Size(text: String): Int = text.toByteArray(Charsets.UTF_8).size
+
+    /**
+     * Yalnız http / https və iyerarxik (`scheme://...`) tətbiq keçidləri izlənir.
+     * `tel:`, `sms:`, `mailto:`, `geo:`, `content://`, `file://` kimi ünvanlar şəxsi məlumat daşıyır və keçid deyil.
+     * [MAX_URL_LENGTH]-dən uzun ünvan keçid sayılmır.
+     */
+    fun isLink(url: String): Boolean {
+        if (url.length > MAX_URL_LENGTH) return false
+        val scheme = LINK_RE.find(url)?.groupValues?.get(1)?.lowercase(Locale.ROOT) ?: return false
+        return !NOT_LINKS.contains(scheme)
+    }
+
+    /** Telefon ədəd kimi verilə bilər (React Native / Flutter-də `Double`): eksponentsiz onluq yazılış götürülür. */
+    fun phoneText(value: Any?): String? = when (value) {
+        is String -> value
+        is Double, is Float -> (value as Number).toDouble().let { if (it.isNaN() || it.isInfinite()) null else java.math.BigDecimal(it).toPlainString() }
+        is java.math.BigDecimal -> value.toPlainString()
+        is Number -> value.toString()
+        else -> null
+    }
 
     /** anon_id-dən [0,1) aralığında sabit ədəd (nümunələmə üçün). Veb tracker ilə eyni alqoritm: FNV-1a 32 bit. */
     fun fraction(text: String): Double {
@@ -163,13 +904,315 @@ internal object Util {
         return h.toDouble() / 4294967296.0
     }
 
+    // ---- Adların təhlili ------------------------------------------------------------------------
+
+    private fun isLower(c: Char) = c in 'a'..'z'
+    private fun isUpper(c: Char) = c in 'A'..'Z'
+    private fun isDigit(c: Char) = c in '0'..'9'
+    private fun isAlnum(c: Char) = isLower(c) || isUpper(c) || isDigit(c)
+    private fun lower(c: Char): Char = if (isUpper(c)) c + 32 else c
+
+    /**
+     * Adın sözləri (tracker: `normName`): `user[passWord]`, `auth-token`, `SMSCode` -> `user pass word`, `auth token`,
+     * `sms code`. Adın yalnız ilk 128 simvoluna (UTF-16 vahidi) baxılır; `%` varsa ad əvvəlcə açılır (açılmırsa olduğu
+     * kimi qalır). Söz yalnız `a-z` hərflərindən ibarətdir: rəqəm və başqa hər simvol ayırıcıdır; kiçik hərf və ya
+     * rəqəmdən sonrakı böyük hərf (camelCase) və böyük hərflər sırasının kiçik hərfdən əvvəlki sonuncu hərfi
+     * (`SMSCode`) yeni söz başlayır. JavaScript-in `toLowerCase()`-i ilə eyni nəticə üçün Kelvin işarəsi (U+212A) `k`,
+     * nöqtəli böyük İ (U+0130) `i` və ardınca ayırıcı sayılır. `camel` false olduqda böyük-kiçik hərf keçidi söz sərhədi
+     * sayılmır (tracker: `normName(name, true)`; `tOkEn` -> `token`).
+     */
+    fun nameWords(name: String, camel: Boolean = true): List<String> {
+        var text = if (name.length > 128) name.substring(0, 128) else name
+        if (text.indexOf('%') >= 0) text = decodeURIComponent(text) ?: text
+        text = fold(text)
+        val out = ArrayList<String>()
+        val word = StringBuilder()
+        val n = text.length
+        for (i in 0 until n) {
+            val c = text[i]
+            var letter = ' '
+            var boundary = false
+            if (isUpper(c)) {
+                val previous = if (i > 0) text[i - 1] else ' '
+                boundary = camel && (isLower(previous) || isDigit(previous) || (isUpper(previous) && i + 1 < n && isLower(text[i + 1])))
+                letter = lower(c)
+            } else if (isLower(c)) {
+                letter = c
+            } else if (c == 'K') {
+                letter = 'k'
+            } else if (c == 'İ') {
+                letter = 'i'
+            } else {
+                boundary = true
+            }
+            if (boundary && word.isNotEmpty()) {
+                out.add(word.toString())
+                word.setLength(0)
+            }
+            if (letter != ' ') word.append(letter)
+            // U+0130 kiçik hərfdə `i` + birləşən nöqtədir (U+0307): nöqtə ayırıcıdır.
+            if (c == 'İ') {
+                out.add(word.toString())
+                word.setLength(0)
+            }
+        }
+        if (word.isNotEmpty()) out.add(word.toString())
+        for (i in out.indices) out[i] = plainStems(out[i])
+        return out
+    }
+
+    /**
+     * Sirr sözünə bənzəyən, amma sirr olmayan kökləri `x` ilə əvəz edir (tracker: PLAIN_STEM_RE, `sifrel|secretar`):
+     * «şifrələ…» (şifrələmə) və `secretar…` (secretary). Beləliklə `sifre` / `secret` hissələri bu sözlərdə tapılmır.
+     */
+    private fun plainStems(word: String): String {
+        if (!word.contains("sifrel") && !word.contains("secretar")) return word
+        val out = StringBuilder(word.length)
+        var i = 0
+        while (i < word.length) {
+            if (word.startsWith("sifrel", i)) {
+                out.append('x')
+                i += 6
+            } else if (word.startsWith("secretar", i)) {
+                out.append('x')
+                i += 8
+            } else {
+                out.append(word[i])
+                i++
+            }
+        }
+        return out.toString()
+    }
+
+    /**
+     * Azərbaycan / türk hərflərini ASCII qarşılığına gətirir (tracker: FOLD) ki, `şifrə`, `nömrə`, `poçt` kimi adlar
+     * tanınsın: `ö ə ş ç ü ğ ı` və böyük qarşılıqları, `İ` -> `I`.
+     */
+    private fun fold(text: String): String {
+        var out: StringBuilder? = null
+        for (i in text.indices) {
+            val folded = when (text[i]) {
+                '\u00f6' -> 'o'
+                '\u00d6' -> 'O'
+                '\u0259' -> 'e'
+                '\u018f' -> 'E'
+                '\u015f' -> 's'
+                '\u015e' -> 'S'
+                '\u00e7' -> 'c'
+                '\u00c7' -> 'C'
+                '\u00fc' -> 'u'
+                '\u00dc' -> 'U'
+                '\u011f' -> 'g'
+                '\u011e' -> 'G'
+                '\u0131' -> 'i'
+                '\u0130' -> 'I'
+                else -> continue
+            }
+            if (out == null) out = StringBuilder(text)
+            out.setCharAt(i, folded)
+        }
+        return out?.toString() ?: text
+    }
+
+    private fun hasPart(word: String, parts: List<String>): Boolean {
+        for (part in parts) if (word.contains(part)) return true
+        return false
+    }
+
+    private fun hasPrefix(word: String, prefixes: List<String>): Boolean {
+        for (prefix in prefixes) if (word.startsWith(prefix)) return true
+        return false
+    }
+
+    /** Ardıcıl iki söz sirr olmayan cütdürsə true (tracker: SAFE_NAME_RE): `promo code`, `endirim kodu`, `card type`. */
+    private fun safePair(first: String, second: String): Boolean =
+        (CODE_WORDS.contains(second) && SAFE_CODE_WORDS.contains(first)) || (DESCRIBING_WORDS.contains(second) && DESCRIBED_WORDS.contains(first))
+
+    /**
+     * Sözlərdən sirr olmayan cütləri çıxarır (tracker: `replace(SAFE_NAME_RE, ' ')`, bax [safePair]). Tracker-dəki ifadə
+     * ardıcıl uyğunluqlarda ortaq boşluğu bir dəfə işlədir, ona görə atılan cütdən dərhal sonrakı söz yeni cütün birinci
+     * sözü ola bilmir (`promo_code_country_code`-da `country code` qalır).
+     */
+    private fun withoutSafePairs(words: List<String>): List<String> {
+        val out = ArrayList<String>(words.size)
+        var i = 0
+        while (i < words.size) {
+            if (i + 1 < words.size && safePair(words[i], words[i + 1])) {
+                i += 2
+                if (i < words.size) {
+                    out.add(words[i])
+                    i++
+                }
+            } else {
+                out.add(words[i])
+                i++
+            }
+        }
+        return out
+    }
+
+    /**
+     * Sözlərdən biri həssas query parametri adına uyğundursa true (tracker: `sensitiveName`). `safe`: [withoutSafePairs]
+     * nəticəsi; `short` (dəyər ən çoxu 2 simvol) olduqda [FLAG_NAME_WORDS] sözləri nəzərə alınmır.
+     */
+    private fun sensitiveWords(safe: List<String>, short: Boolean): Boolean {
+        for (word in safe) {
+            if (short && FLAG_NAME_WORDS.contains(word)) continue
+            if (hasPart(word, PARAM_PARTS) || hasPrefix(word, PHONE_PREFIXES) || PARAM_WORDS.contains(word)) return true
+        }
+        return false
+    }
+
+    /** Açarın sözləri e-poçt adına uyğundursa true (tracker: `mailWords`). */
+    private fun mailKeyWords(words: List<String>): Boolean {
+        for (word in words) if (hasPart(word, MAIL_KEY_PARTS)) return true
+        return false
+    }
+
+    /** Söz telefon adıdırsa true (tracker: `phoneWord`). */
+    private fun phoneKeyWord(word: String): Boolean = hasPrefix(word, PHONE_PREFIXES) || hasPart(word, PHONE_KEY_PARTS) || PHONE_KEY_WORDS.contains(word)
+
+    /** Açarın sözləri telefon adına uyğundursa true (tracker: `phoneWords`). */
+    private fun phoneKeyWords(words: List<String>): Boolean {
+        for (word in words) if (phoneKeyWord(word)) return true
+        return false
+    }
+
+    /**
+     * Dəyər telefon nömrəsi şəklindədirsə true (tracker: `phoneShaped`): 7–15 rəqəmli tam ədəd və ya yalnız rəqəm, boşluq və
+     * `+ - ( ) .` simvollarından ibarət, 7–15 rəqəmli mətn ([CONTACT_MAX]-dan uzun mətn yox).
+     */
+    private fun phoneShaped(value: Any?): Boolean {
+        if (value is Number) {
+            val d = value.toDouble()
+            return d == Math.floor(d) && Math.abs(d) >= 1000000.0 && Math.abs(d) < 1e15
+        }
+        if (value !is String || value.length > CONTACT_MAX) return false
+        val v = jsTrim(value)
+        if (v.length < 7 || v.length > 40) return false
+        var digits = 0
+        for (c in v) {
+            if (isDigit(c)) digits++ else if (c != '+' && c != '-' && c != '(' && c != ')' && c != '.' && !isSpace(c)) return false
+        }
+        return digits in 7..15
+    }
+
+    /** 64 simvolluq hex mətn (tracker: HEX64_RE): `*_sha256` açarının yararlı dəyəri. */
+    private fun isHex64(text: String): Boolean {
+        if (text.length != 64) return false
+        for (c in text) if (!isHexDigit(c)) return false
+        return true
+    }
+
+    /**
+     * `props` / `traits` açarı şəxsi məlumata və ya sirrə işarə edirsə true (tracker: `forbiddenKey`). Ad sözlərə ayrılır
+     * (bax [nameWords]); flag: dəyər `true` / `false` / null; small: flag və ya mütləq qiyməti [SMALL_NUMBER]-dən kiçik ədəd:
+     *  - kiçik hərflə yazılmış ad dəqiq [FORBIDDEN_KEYS] siyahısındadırsa həmişə atılır;
+     *  - `sha256` ilə bitən ad sonluqsuz yoxlanır (64 hex dəyərli `*_sha256` açarı bura çatmır, [clean]-də saxlanır);
+     *  - `authorization` / `authorisation` sözü: həmişə atılır;
+     *  - sirr hissəsi ([SECRET_KEY_PARTS]) olan söz, dəyər flag olmayanda: son sözdürsə və ya ardınca yalnız bir təsvir sözü
+     *    ([SECRET_DETAIL_WORDS]) gəlirsə həmişə, qalan halda dəyər small olmayanda atılır (`has_password: true`,
+     *    `is_secret: true`, `password_changed: true` qalır); «şifrələ…» və `secretar…` kökləri sirr hissəsi sayılmır (bax
+     *    [plainStems]);
+     *  - dəyər flag olmayanda: `signature` / `cardholder` / `creditcard` / `pinkod` hissəsi olan söz, `sig` / `nonce` sözü,
+     *    `license` + `key`, `cc` / `account` / `hesab` + nömrə sözü (`cc_number`, `account_number`, `hesab_nomresi`) atılır;
+     *  - `token` ilə bitən söz adın son sözüdürsə həmişə atılır (`token_count`, `tokens` qalır);
+     *  - `card` / `kart`: ardınca kart məlumatı sözü gəlirsə həmişə; son sözdürsə, dəyər flag deyilsə və əvvəlki söz
+     *    [SAFE_CARD_WORDS]-də deyilsə atılır (`gift_card` qalır);
+     *  - `api` / `access` / `private` / `auth` + `key`, `session` + `id`: həmişə atılır;
+     *  - qısa çoxmənalı sözlər ([LAST_KEY_WORDS]): son sözdürsə və ya ardınca yalnız bir təsvir sözü gəlirsə, dəyər flag
+     *    olmayanda atılır (`pin`, `user_otp`, `cookie_value`; `pin_color`, `otp_sent` qalır);
+     *  - `code` / `kod` / `kodu` son sözdürsə və əvvəlki söz [CODE_OWNER_WORDS]-dədirsə, dəyər flag olmayanda atılır;
+     *  - e-poçt hissəsi olan söz: dəyər small olmayanda atılır (`email_verified: true`, `emails_sent: 5` qalır); dəyər əlaqə
+     *    məlumatı deyilsə (bax [contactLabel]: `email_template: "welcome"`, `mobile: "ios"`) e-poçt və telefon sözü açarı atmır;
+     *  - telefon sözü: dəyər small deyilsə və söz sonuncudursa, ardınca nömrə sözü gəlirsə və ya dəyər telefon
+     *    şəklindədirsə (bax [phoneShaped]) atılır (`phone_model: "iPhone15"` qalır).
+     */
+    fun forbiddenKey(name: String, value: Any?): Boolean {
+        val lower = name.lowercase(Locale.ROOT)
+        if (FORBIDDEN_KEYS.contains(lower)) return true
+        var w = nameWords(name)
+        val flag = value == null || value === JSONObject.NULL || value is Boolean
+        val small = flag || (value is Number && value.toDouble() > -SMALL_NUMBER && value.toDouble() < SMALL_NUMBER)
+        if (lower.endsWith("sha256") && w.isNotEmpty() && w[w.size - 1] == "sha") w = w.subList(0, w.size - 1)
+        val n = w.size
+        for (i in 0 until n) {
+            val word = w[i]
+            val last = i == n - 1
+            val detail = i == n - 2 && SECRET_DETAIL_WORDS.contains(w[i + 1])
+            if (SECRET_KEY_WORDS.contains(word) || (!flag && hasPart(word, SECRET_KEY_PARTS) && (last || detail || !small))) return true
+            if (last && word.endsWith("token")) return true
+            if (CARD_WORDS.contains(word)) {
+                if (!last && CARD_DETAIL_WORDS.contains(w[i + 1])) return true
+                if (last && !flag && !(i > 0 && SAFE_CARD_WORDS.contains(w[i - 1]))) return true
+            }
+            if (i > 0 && word == "key" && KEY_OWNER_WORDS.contains(w[i - 1])) return true
+            if (i > 0 && word == "id" && w[i - 1] == "session") return true
+            if (!flag && LAST_KEY_WORDS.contains(word) && (last || detail)) return true
+            if (last && !flag && i > 0 && CODE_WORDS.contains(word) && CODE_OWNER_WORDS.contains(w[i - 1])) return true
+            if (!flag && (
+                    hasPart(word, FLAG_KEY_PARTS) || FLAG_KEY_WORDS.contains(word) || (i > 0 && word == "key" && LICENSE_WORDS.contains(w[i - 1])) ||
+                        (!last && NUMBER_OWNER_WORDS.contains(word) && PHONE_DETAIL_WORDS.contains(w[i + 1]))
+                    )
+            ) {
+                return true
+            }
+            if (small || contactLabel(value, if (last) "" else w[i + 1])) continue
+            if (hasPart(word, MAIL_KEY_PARTS)) return true
+            if (phoneKeyWord(word) && (last || PHONE_DETAIL_WORDS.contains(w[i + 1]) || phoneShaped(value))) return true
+        }
+        return false
+    }
+
+    /**
+     * E-poçt / telefon sözü olan açarın dəyəri əlaqə məlumatı deyilsə true (tracker: `contactLabel`): ən çoxu 32 simvolluq
+     * (UTF-16 vahidi) mətn, içində `@` (və ya tam enli `＠`) və 7+ rəqəmlik ardıcıllıq yoxdur, və ya açarda sözdən sonra
+     * ayar sözü gəlir (`next`: [CONTACT_DETAIL_WORDS]; `email_template`, `mailing_list`), ya da dəyər [CONTACT_VALUES]
+     * siyahısındadır (`mobile: "ios"`, `is_mobile: "yes"`).
+     */
+    private fun contactLabel(value: Any?, next: String): Boolean {
+        if (value !is String || value.length > 32 || value.indexOf('@') >= 0 || value.indexOf(WIDE_AT) >= 0) return false
+        var run = 0
+        for (c in value) {
+            if (!isDigit(c)) {
+                run = 0
+            } else if (++run >= 7) {
+                return false
+            }
+        }
+        return CONTACT_DETAIL_WORDS.contains(next) || CONTACT_VALUES.contains(lowerAscii(jsTrim(value)))
+    }
+
+    /**
+     * Query (və ya matris) parametri silinməlidirsə true (tracker: `stripParam`; `value`: parametrin xam dəyəri). Sıra:
+     * konfiqin `strip_params` siyahısı (`extra`, kiçik hərflə); klik ID-ləri (yalnız reklam razılığı yoxdursa silinir);
+     * tanınan utm adları ([UTM_NAMES], saxlanır); sonra adın sözləri həssas ad siyahıları ilə tutuşdurulur. Uyğunluq yoxdursa
+     * və istisna cütü də tapılmayıbsa ad böyük-kiçik hərf bölgüsü olmadan bir də yoxlanır (`PaSsWoRd`, `tOkEn`).
+     */
+    fun sensitiveParam(rawName: String, extra: Set<String> = emptySet(), ads: Boolean = true, value: String = "..."): Boolean {
+        val decoded = decodeURIComponent(rawName) ?: rawName
+        val lower = decoded.lowercase(Locale.ROOT)
+        if (extra.contains(lower)) return true
+        if (CLICK_IDS.contains(lower)) return !ads
+        if (UTM_NAMES.contains(lower)) return false
+        val short = value.length <= 2
+        val words = nameWords(decoded)
+        val safe = withoutSafePairs(words)
+        if (sensitiveWords(safe, short)) return true
+        return safe.size == words.size && sensitiveWords(withoutSafePairs(nameWords(decoded, false)), short)
+    }
+
+    // ---- İstifadəçi məlumatının təmizlənməsi ----------------------------------------------------
+
     /**
      * İstifadəçi məlumatını JSON dəyərinə çevirir. Qadağan olunmuş açarlar, dərinliyi aşan və
-     * JSON-a çevrilməyən dəyərlər atılır. Atılan dəyər üçün [DROP] qaytarılır.
+     * JSON-a çevrilməyən dəyərlər atılır; mətn dəyərlərində e-poçta bənzər hissələr gizlədilir.
+     * Atılan dəyər üçün [DROP] qaytarılır.
      */
-    fun clean(value: Any?, depth: Int, log: (String) -> Unit = {}): Any? = when (value) {
+    fun clean(value: Any?, depth: Int, log: (String) -> Unit = {}, extra: Set<String> = emptySet(), ads: Boolean = true): Any? = when (value) {
         null, JSONObject.NULL -> JSONObject.NULL
-        is String, is Boolean -> value
+        is String -> scrubText(text(value), extra, ads)
+        is Boolean -> value
         is Int, is Long, is Short, is Byte -> (value as Number).toLong()
         is Float -> if (value.isNaN() || value.isInfinite()) DROP else value.toDouble()
         is Double -> if (value.isNaN() || value.isInfinite()) DROP else value
@@ -177,68 +1220,1585 @@ internal object Util {
         is Date -> iso(value.time)
         is Map<*, *> -> if (depth <= 0) DROP else JSONObject().also { out ->
             for ((k, v) in value) {
-                val key = k as? String ?: continue
-                if (FORBIDDEN.contains(key.lowercase(Locale.ROOT))) { log("dropped forbidden key: $key"); continue }
-                val cleaned = clean(v, depth - 1, log)
-                if (cleaned !== DROP) out.put(key, cleaned)
+                // Əvvəlcə NUL silinir, sonra açar yoxlanır (iOS ilə eyni sıra).
+                val key = (k as? String)?.let { text(it) } ?: continue
+                // `__proto__` açarı JavaScript tərəfində prototipi dəyişərdi: veb tracker kimi atılır.
+                if (key == "__proto__") continue
+                // `*_sha256` açarının 64 simvolluq hex dəyəri artıq hash-dir: olduğu kimi saxlanır.
+                if (v is String && key.lowercase(Locale.ROOT).endsWith("sha256") && isHex64(v)) { out.put(key, v); continue }
+                if (forbiddenKey(key, v)) { log("dropped forbidden key: $key"); continue }
+                val cleaned = clean(v, depth - 1, log, extra, ads)
+                if (cleaned !== DROP) out.put(key, cleaned) else log("dropped unsupported value: $key")
             }
         }
         is Iterable<*> -> if (depth <= 0) DROP else JSONArray().also { out ->
-            for (item in value) clean(item, depth - 1, log).let { if (it !== DROP) out.put(it) }
+            for (item in value) clean(item, depth - 1, log, extra, ads).let { if (it !== DROP) out.put(it) else log("dropped unsupported list item") }
         }
-        is Array<*> -> clean(value.asList(), depth, log)
-        is JSONObject -> clean(value.keys().asSequence().associateWith { value.opt(it) }, depth, log)
-        is JSONArray -> clean((0 until value.length()).map { value.opt(it) }, depth, log)
+        is Array<*> -> clean(value.asList(), depth, log, extra, ads)
+        is JSONObject -> clean(value.keys().asSequence().associateWith { value.opt(it) }, depth, log, extra, ads)
+        is JSONArray -> clean((0 until value.length()).map { value.opt(it) }, depth, log, extra, ads)
         else -> DROP
     }
 
     val DROP = Any()
 
     /** Map-i təmiz JSONObject-ə çevirir; boşdursa null. */
-    fun cleanObject(map: Map<String, Any?>?, log: (String) -> Unit = {}): JSONObject? {
+    fun cleanObject(map: Map<String, Any?>?, log: (String) -> Unit = {}, extra: Set<String> = emptySet(), ads: Boolean = true): JSONObject? {
         if (map == null) return null
-        val out = clean(map, 4, log) as? JSONObject ?: return null
+        val out = clean(map, 4, log, extra, ads) as? JSONObject ?: return null
         return if (out.length() == 0) null else out
     }
 
-    private fun splitQuery(query: String): List<Pair<String, String>> =
-        query.split('&').filter { it.isNotEmpty() }.map {
-            val i = it.indexOf('=')
-            if (i < 0) decode(it) to "" else decode(it.substring(0, i)) to decode(it.substring(i + 1))
-        }
-
-    private fun decode(text: String): String = try {
-        java.net.URLDecoder.decode(text, "UTF-8")
-    } catch (e: Exception) {
-        text
+    /**
+     * `identify`-ın göndərilən `traits`-i (veb tracker ilə eyni qayda): təmizlənmiş obyekt və `email_sha256` /
+     * `phone_sha256`; boşdursa null. E-poçt və telefon cihazı yalnız hash şəklində tərk edir:
+     * - dəqiq `email` (mətn) və `phone` (mətn və ya ədəd) açarları üstündür: e-poçt boşluqları silinib kiçik hərfə
+     *   çevrilir, telefonun yalnız rəqəmləri götürülür; boş qalmayan dəyər hash olunur;
+     * - sonra oxşar adlı açarlar (`Email`, `user_email`, `phoneNumber`, `msisdn` …) yoxlanır, bax [hashTraits].
+     */
+    fun cleanTraits(traits: Map<String, Any?>?, log: (String) -> Unit = {}, extra: Set<String> = emptySet(), ads: Boolean = true): JSONObject? {
+        if (traits == null) return null
+        val out = clean(traits, 4, log, extra, ads) as? JSONObject ?: JSONObject()
+        // [CONTACT_MAX]-dan uzun mətn e-poçt / telefon namizədi deyil.
+        val email = (traits["email"] as? String)?.takeIf { it.length <= CONTACT_MAX }?.let { normalizeEmail(text(it)) }
+        if (!email.isNullOrEmpty()) out.put("email_sha256", sha256(email))
+        val exact = traits["phone"]
+        val phone = if ((exact is String && exact.length <= CONTACT_MAX) || exact is Number) phoneText(exact)?.let { normalizePhone(it) } else null
+        if (!phone.isNullOrEmpty()) out.put("phone_sha256", sha256(phone))
+        hashTraits(traits, out, 1)
+        return if (out.length() == 0) null else out
     }
 
     /**
-     * Keçiddən həssas query parametrlərini, fraqmenti, istifadəçi adı / parol hissəsini silir və
-     * host-dan sonrakı hissədə e-poçta bənzər mətni gizlədir (veb tracker ilə eyni qayda).
+     * `traits`-dəki e-poçt və telefon dəyərlərini hash edir (tracker: `hashTraits`). Açar adı sözə görə tanınır
+     * (bax [mailKeyWords], [phoneKeyWords]); `sha256` ilə bitən açarlara baxılmır. Açarlar əlifba sırası ilə
+     * (UTF-16 vahidlərinə görə) gəzilir və ilk yararlı dəyər götürülür: e-poçt üçün e-poçta bənzəyən mətn, telefon
+     * üçün ən azı 7 rəqəm. `out`-da artıq olan hash dəyişdirilmir. `depth` səviyyə iç-içə obyektlər də yoxlanır.
      */
-    fun cleanUrl(url: String, extraStrip: Set<String> = emptySet()): String {
-        var base = url.substringBefore('#')
-        val q = base.indexOf('?')
-        if (q >= 0) {
-            val kept = base.substring(q + 1).split('&').filter { part ->
-                val name = decode(part.substringBefore('=')).lowercase(Locale.ROOT)
-                part.isNotEmpty() && !STRIP.contains(name) && !extraStrip.contains(name)
+    private fun hashTraits(traits: Map<*, *>, out: JSONObject, depth: Int) {
+        val keys = ArrayList<String>()
+        for (k in traits.keys) if (k is String) keys.add(k)
+        // String.compareTo UTF-16 vahidlərini müqayisə edir: JavaScript-in `sort()`-u ilə eyni sıra.
+        keys.sort()
+        for (key in keys) {
+            val value = traits[key]
+            if (key.lowercase(Locale.ROOT).endsWith("sha256")) continue
+            if (value is String || value is Number) {
+                val raw = text(phoneText(value) ?: continue)
+                if (raw.length > CONTACT_MAX) continue
+                val given = jsTrim(raw)
+                val words = nameWords(key)
+                if (mailKeyWords(words)) {
+                    if (!out.has("email_sha256") && isEmailShaped(given)) out.put("email_sha256", sha256(given.lowercase(Locale.ROOT)))
+                } else if (phoneKeyWords(words)) {
+                    val digits = normalizePhone(given)
+                    if (!out.has("phone_sha256") && digits.length >= 7) out.put("phone_sha256", sha256(digits))
+                }
+            } else if (depth > 0) {
+                val nested: Map<*, *>? = when (value) {
+                    is Map<*, *> -> value
+                    is JSONObject -> value.keys().asSequence().toList().associateWith { value.opt(it) }
+                    else -> null
+                }
+                if (nested != null) hashTraits(nested, out, depth - 1)
             }
-            base = base.substring(0, q) + if (kept.isEmpty()) "" else "?" + kept.joinToString("&")
         }
-        val origin = ORIGIN_RE.find(base)?.value.orEmpty()
-        val head = origin.replace(USERINFO_RE, "//")
-        return (head + base.substring(origin.length).replace(EMAIL_RE, "[redacted]")).take(2048)
     }
 
-    /** Keçiddəki UTM və klik ID parametrləri (PROTOCOL.md 5.4 `campaign`). */
-    fun campaignOf(url: String): JSONObject? {
+    /** Çağırış anındakı surətin hədləri: bundan böyük və ya özünə istinad edən quruluş kopyalanmır. */
+    const val MAX_SNAPSHOT_NODES = 2_000
+    const val MAX_SNAPSHOT_CHARS = 100_000
+
+    /** [snapshot] hədlərini aşan `props` / `traits` yerinə qaytarılan işarə: event parametrsiz gedir. */
+    val OVERSIZED: Map<String, Any?> = HashMap()
+
+    private class Budget(var nodes: Int, var chars: Int) {
+        fun take(value: Any?) {
+            nodes--
+            if (value is String) chars -= value.length
+            if (nodes < 0 || chars < 0) throw IllegalStateException("too large")
+        }
+    }
+
+    /**
+     * Çağırış anındakı dəyərlərin surəti: tətbiq eyni xəritəni sonra dəyişsə və ya yenidən istifadə etsə də
+     * event çağırış anındakı dəyərlərlə gedir. Dərinlik həddi [cleanObject] ilə eynidir; element sayı və mətnlərin
+     * ümumi uzunluğu məhduddur (çağıran axın nəhəng və ya sonsuz kolleksiyada ilişmir): hədd aşılarsa [OVERSIZED].
+     */
+    fun snapshot(map: Map<String, Any?>?): Map<String, Any?>? {
+        if (map == null) return null
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            copy(map, 4, Budget(MAX_SNAPSHOT_NODES, MAX_SNAPSHOT_CHARS)) as? Map<String, Any?>
+        } catch (e: IllegalStateException) {
+            OVERSIZED
+        }
+    }
+
+    private fun copy(value: Any?, depth: Int, budget: Budget): Any? {
+        budget.take(value)
+        return when (value) {
+            is Map<*, *> -> if (depth <= 0) DROP else LinkedHashMap<String, Any?>().also { out ->
+                for ((k, v) in value) {
+                    val key = k as? String ?: continue
+                    budget.take(key)
+                    out[key] = copy(v, depth - 1, budget)
+                }
+            }
+            is Iterable<*> -> if (depth <= 0) DROP else ArrayList<Any?>().also { out -> for (item in value) out.add(copy(item, depth - 1, budget)) }
+            is Array<*> -> copy(value.asList(), depth, budget)
+            is JSONObject -> copy(value.keys().asSequence().toList().associateWith { value.opt(it) }, depth, budget)
+            is JSONArray -> copy((0 until value.length()).map { value.opt(it) }, depth, budget)
+            is Date -> Date(value.time)
+            else -> value
+        }
+    }
+
+    // ---- Kontekst -------------------------------------------------------------------------------
+
+    /**
+     * Sistem dil identifikatorunu sxemin həddinə gətirir: `_` -> `-`, `@…` və Unicode genişlənməsi (`-u-…`) atılır,
+     * ən çox 35 simvol.
+     */
+    fun localeTag(identifier: String): String {
+        var tag = identifier.substringBefore('@').replace('_', '-')
+        val extension = tag.lowercase(Locale.ROOT).indexOf("-u-")
+        if (extension >= 0) tag = tag.substring(0, extension)
+        return text(tag, 35).trimEnd('-')
+    }
+
+    private fun clampText(o: JSONObject, name: String, limit: Int, map: (String) -> String = { it }) {
+        if (!o.has(name)) return
+        val value = (o.opt(name) as? String)?.let { text(map(it), limit) }
+        if (value.isNullOrEmpty()) o.remove(name) else o.put(name, value)
+    }
+
+    private fun clampObject(ctx: JSONObject, name: String, fields: List<Pair<String, Int>>): JSONObject? {
+        if (!ctx.has(name)) return null
+        val o = ctx.optJSONObject(name)
+        if (o == null) {
+            ctx.remove(name)
+            return null
+        }
+        for ((field, limit) in fields) clampText(o, field, limit)
+        return o
+    }
+
+    /**
+     * Cihaz kontekstini sxemin (spec/schema/batch.v1.schema.json) hədlərinə gətirir: uzun mətnlər kəsilir, yanlış
+     * tipli və boş sahələr atılır. Hədd aşan bir sahə bütün toplunun rədd olunmasına (və silinməsinə) səbəb olardı.
+     */
+    fun clampContext(ctx: JSONObject): JSONObject {
+        clampText(ctx, "locale", 35) { localeTag(it) }
+        clampText(ctx, "tz", 64)
+        clampText(ctx, "ua", 1024)
+        clampObject(ctx, "app", listOf("id" to 255, "version" to 64, "build" to 64))?.let { if (!it.has("id")) ctx.remove("app") }
+        clampObject(ctx, "os", listOf("name" to 32, "version" to 32))
+        clampObject(ctx, "device", listOf("manufacturer" to 64, "model" to 64, "type" to 16))
+        if (ctx.has("screen")) {
+            val screen = ctx.optJSONObject("screen")
+            if (screen == null) {
+                ctx.remove("screen")
+            } else {
+                for (name in listOf("w", "h")) {
+                    val n = (screen.opt(name) as? Number)?.toDouble()
+                    if (n == null || n.isNaN() || n < 0 || n > Int.MAX_VALUE) screen.remove(name) else screen.put(name, n.toInt())
+                }
+                val density = (screen.opt("density") as? Number)?.toDouble()
+                if (density == null || density.isNaN() || density.isInfinite() || density < 0) screen.remove("density")
+            }
+        }
+        if (ctx.has("ids")) {
+            val ids = ctx.optJSONObject("ids")
+            if (ids != null) for (name in ids.keys().asSequence().toList()) clampText(ids, name, 256)
+            if (ids == null || ids.length() == 0) ctx.remove("ids")
+        }
+        return ctx
+    }
+
+    // ---- Ünvanlar -------------------------------------------------------------------------------
+
+    private fun hex(c: Char): Int = when (c) {
+        in '0'..'9' -> c - '0'
+        in 'a'..'f' -> c - 'a' + 10
+        in 'A'..'F' -> c - 'A' + 10
+        else -> -1
+    }
+
+    /** `text[at]`-dəki `%XX` ardıcıllığının baytı; ardıcıllıq yararsızdırsa -1. */
+    private fun percentByte(text: String, at: Int): Int {
+        if (at + 2 >= text.length || text[at] != '%') return -1
+        val hi = hex(text[at + 1])
+        val lo = hex(text[at + 2])
+        return if (hi < 0 || lo < 0) -1 else hi * 16 + lo
+    }
+
+    /**
+     * JavaScript-in `decodeURIComponent` funksiyası ilə eyni nəticə: faiz kodlamasını açır (`+` olduğu kimi qalır).
+     * Yararsız `%` ardıcıllığı və ya yararsız UTF-8 (yarımçıq, artıq uzun yazılış, surroqat, U+10FFFF-dən böyük)
+     * olduqda null qaytarır (JavaScript-də istisna): çağıran mətni olduğu kimi saxlayır və ya parametri ötürür.
+     */
+    fun decodeURIComponent(text: String): String? {
+        if (text.indexOf('%') < 0) return text
+        val out = StringBuilder(text.length)
+        val n = text.length
+        var i = 0
+        while (i < n) {
+            val c = text[i]
+            if (c != '%') {
+                out.append(c)
+                i++
+                continue
+            }
+            val first = percentByte(text, i)
+            if (first < 0) return null
+            i += 3
+            if (first < 0x80) {
+                out.append(first.toChar())
+                continue
+            }
+            // Çoxbaytlı UTF-8: davam baytlarının sayı və ən kiçik yararlı kod nöqtəsi.
+            val extra: Int
+            val min: Int
+            if (first in 0xc2..0xdf) {
+                extra = 1
+                min = 0x80
+            } else if (first in 0xe0..0xef) {
+                extra = 2
+                min = 0x800
+            } else if (first in 0xf0..0xf4) {
+                extra = 3
+                min = 0x10000
+            } else {
+                return null
+            }
+            var point = first and (0x3f shr extra)
+            for (k in 0 until extra) {
+                val next = percentByte(text, i)
+                if (next < 0 || (next and 0xc0) != 0x80) return null
+                point = (point shl 6) or (next and 0x3f)
+                i += 3
+            }
+            if (point < min || point > 0x10ffff || (point in 0xd800..0xdfff)) return null
+            out.appendCodePoint(point)
+        }
+        return out.toString()
+    }
+
+    /**
+     * JavaScript-in `encodeURIComponent` funksiyası ilə eyni nəticə: `A-Z a-z 0-9 - _ . ! ~ * ' ( )` simvollarından
+     * başqa hər UTF-8 baytı faizlə kodlanır.
+     */
+    fun encode(text: String): String {
+        val out = StringBuilder(text.length + 16)
+        for (byte in text.toByteArray(Charsets.UTF_8)) {
+            val v = byte.toInt() and 0xff
+            val c = v.toChar()
+            if (isAlnum(c) || c == '-' || c == '_' || c == '.' || c == '!' || c == '~' || c == '*' || c == '\'' || c == '(' || c == ')') {
+                out.append(c)
+            } else {
+                out.append('%').append("0123456789ABCDEF"[v shr 4]).append("0123456789ABCDEF"[v and 15])
+            }
+        }
+        return out.toString()
+    }
+
+    /** JavaScript-in `\s` sinfi (veb tracker ilə eyni ayırıcılar). */
+    private fun isSpace(c: Char): Boolean = when (c) {
+        '\t', '\n', '\u000b', '\u000c', '\r', ' ', ' ', ' ', ' ', ' ', ' ', ' ', '　', '﻿' -> true
+        else -> c in ' '..' '
+    }
+
+    private fun isSegmentEnd(c: Char): Boolean = c == '/' || c == '?' || c == '&' || c == '=' || c == '#' || isSpace(c)
+
+    /** Yalnız ASCII böyük hərfləri kiçildir (tracker: `lowerAscii`). */
+    private fun lowerAscii(text: String): String {
+        var out: StringBuilder? = null
+        for (i in text.indices) {
+            if (!isUpper(text[i])) continue
+            if (out == null) out = StringBuilder(text)
+            out.setCharAt(i, lower(text[i]))
+        }
+        return out?.toString() ?: text
+    }
+
+    /** `text` mətni `prefix` ilə (kiçik hərflə verilir) başlayırsa true; yalnız ASCII hərflərində böyük-kiçik fərqinə baxılmır. */
+    private fun prefixed(text: String, prefix: String): Boolean {
+        if (text.length < prefix.length) return false
+        for (i in prefix.indices) if (lower(text[i]) != prefix[i]) return false
+        return true
+    }
+
+    /**
+     * `text[from, end)` şəkil adının sonluğudursa true (tracker: ASSET_TAIL_RE, `^[0-9]+(\.[0-9]+)?x\.([A-Za-z0-9]+)$` və
+     * uzantı [STATIC_EXT] siyahısındadır): `@2x.png`, `@1.5x.jpg` sonluqlu şəkil adları.
+     */
+    private fun assetTail(text: String, from: Int, end: Int): Boolean {
+        var i = from
+        while (i < end && isDigit(text[i])) i++
+        if (i == from) return false
+        if (i + 1 < end && text[i] == '.' && isDigit(text[i + 1])) {
+            i++
+            while (i < end && isDigit(text[i])) i++
+        }
+        if (i + 1 >= end || text[i] != 'x' || text[i + 1] != '.') return false
+        i += 2
+        if (i >= end) return false
+        for (k in i until end) if (!isAlnum(text[k])) return false
+        return STATIC_EXT.contains(lowerAscii(text.substring(i, end)))
+    }
+
+    /**
+     * `@`-dən sonrakı hissə (`text[from, end)`) e-poçt domeninə oxşayırsa true (tracker: `emailTail`): `.\.[A-Za-z]{2}`
+     * uyğun gəlir və hissə şəkil adının sonluğu deyil (bax [assetTail]).
+     */
+    private fun emailTail(text: String, from: Int, end: Int): Boolean {
+        var i = from + 1
+        var found = false
+        while (i + 2 < end) {
+            if (text[i] == '.' && (isLower(text[i + 1]) || isUpper(text[i + 1])) && (isLower(text[i + 2]) || isUpper(text[i + 2]))) {
+                found = true
+                break
+            }
+            i++
+        }
+        return found && !assetTail(text, from, end)
+    }
+
+    /**
+     * E-poçta bənzər hissələri `[redacted]` ilə əvəz edir (veb tracker ilə eyni qayda). Mətn ayırıcılara
+     * (`/ ? & = #` və boşluqlar) görə hissələrə bölünür və hər simvola sabit sayda baxılır: istənilən girişdə
+     * xətti vaxtda işləyir (regex işlədilmir).
+     */
+    fun redactEmails(text: String): String {
+        if (text.indexOf('@') < 0 && !text.contains("%40") && text.indexOf(WIDE_AT) < 0) return text
+        val out = StringBuilder(text.length)
+        val n = text.length
+        var i = 0
+        while (i < n) {
+            if (isSegmentEnd(text[i])) {
+                out.append(text[i])
+                i++
+                continue
+            }
+            var end = i
+            // `@` (və ya tam enli `＠`) və ya `%40` hissənin birinci simvolundan sonra axtarılır.
+            var mark = -1
+            var skip = 0
+            while (end < n && !isSegmentEnd(text[end])) {
+                if (mark < 0 && end > i) {
+                    if (text[end] == '@' || text[end] == WIDE_AT) {
+                        mark = end
+                        skip = 1
+                    } else if (text[end] == '%' && end + 2 < n && text[end + 1] == '4' && text[end + 2] == '0') {
+                        mark = end
+                        skip = 3
+                    }
+                }
+                end++
+            }
+            if (mark >= 0 && emailTail(text, mark + skip, end)) out.append(REDACTED) else out.append(text, i, end)
+            i = end
+        }
+        return out.toString()
+    }
+
+    private fun isHexDigit(c: Char) = hex(c) >= 0
+    private fun isBase64Url(c: Char) = isAlnum(c) || c == '-' || c == '_'
+
+    /**
+     * JWT (tracker: JWT_RE, `^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(\.[A-Za-z0-9_-]*)?$`): `eyJ` ilə başlayan, hər biri
+     * ən azı 8 simvolluq iki base64url hissə və istəyə görə üçüncü hissə.
+     */
+    private fun isJwt(text: String): Boolean {
+        val n = text.length
+        if (n < 20 || !text.startsWith("eyJ")) return false
+        var i = 3
+        var run = 0
+        while (i < n && isBase64Url(text[i])) {
+            i++
+            run++
+        }
+        if (run < 8 || i >= n || text[i] != '.') return false
+        i++
+        run = 0
+        while (i < n && isBase64Url(text[i])) {
+            i++
+            run++
+        }
+        if (run < 8) return false
+        if (i == n) return true
+        if (text[i] != '.') return false
+        i++
+        while (i < n && isBase64Url(text[i])) i++
+        return i == n
+    }
+
+    /** Tanınan API açarı önü və ardınca ən azı 10 base64url simvolu (tracker: KEY_PREFIX_RE; `sk_live_…`). */
+    private fun keyPrefix(text: String): Boolean {
+        for (prefix in KEY_PREFIXES) {
+            if (!text.startsWith(prefix) || text.length - prefix.length < 10) continue
+            var ok = true
+            for (i in prefix.length until text.length) if (!isBase64Url(text[i])) ok = false
+            if (ok) return true
+        }
+        return false
+    }
+
+    /** Luhn yoxlaması (kart nömrəsi); mətn yalnız rəqəmlərdən ibarət olmalıdır. */
+    private fun luhn(digits: CharSequence): Boolean {
+        var sum = 0
+        var alt = false
+        for (i in digits.length - 1 downTo 0) {
+            var d = digits[i] - '0'
+            if (alt) {
+                d *= 2
+                if (d > 9) d -= 9
+            }
+            sum += d
+            alt = !alt
+        }
+        return sum % 10 == 0
+    }
+
+    /**
+     * Kart nömrəsi (tracker: `cardNumber`, `^[0-9]([ -]?[0-9]){14,18}$`): 15–19 rəqəm, rəqəmlər arasında tək boşluq və ya
+     * tire ola bilər, Luhn yoxlamasından keçir.
+     */
+    private fun cardNumber(s: String): Boolean {
+        val n = s.length
+        if (n < 15 || n > 40 || !isDigit(s[0]) || !isDigit(s[n - 1])) return false
+        val digits = StringBuilder(19)
+        var separator = false
+        for (c in s) {
+            if (isDigit(c)) {
+                digits.append(c)
+                separator = false
+            } else if ((c == ' ' || c == '-') && !separator) {
+                separator = true
+            } else {
+                return false
+            }
+        }
+        return digits.length in 15..19 && luhn(digits)
+    }
+
+    /**
+     * Adi identifikator (tracker: `plainId`): cuid (`c` + 24 kiçik hərf / rəqəm) və ULID (26 simvol, birincisi `0-7`,
+     * qalanı Crockford base32: `0-9 A-H J K M N P-T V-Z`).
+     */
+    private fun plainId(s: String, from: Int, to: Int): Boolean {
+        val length = to - from
+        if (length == 25 && s[from] == 'c') {
+            for (i in from until to) if (!(isLower(s[i]) || isDigit(s[i]))) return false
+            return true
+        }
+        if (length == 26 && s[from] in '0'..'7') {
+            for (i in from until to) {
+                val c = s[i]
+                if (!(isDigit(c) || (isUpper(c) && c != 'I' && c != 'L' && c != 'O' && c != 'U'))) return false
+            }
+            return true
+        }
+        return false
+    }
+
+    /**
+     * 24 və daha çox simvolluq hərf-rəqəm ardıcıllığı, içində rəqəm və hex olmayan hərf (tracker: `longRun`). Təmiz hex
+     * ID-lər (məsələn 24 simvolluq ObjectId) adi identifikatordur; 32+ hex ayrıca qayda ilə tutulur. `hinted` deyilsə
+     * cuid və ULID də adi identifikator sayılır (bax [plainId]).
+     */
+    private fun longRun(s: String, hinted: Boolean): Boolean {
+        var run = 0
+        var digit = false
+        var other = false
+        for (i in 0..s.length) {
+            val c = if (i < s.length) s[i] else '/'
+            if (isAlnum(c)) {
+                run++
+                if (isDigit(c)) digit = true else if (!isHexDigit(c)) other = true
+            } else {
+                if (run >= 24 && digit && other && (hinted || !plainId(s, i - run, i))) return true
+                run = 0
+                digit = false
+                other = false
+            }
+        }
+        return false
+    }
+
+    /**
+     * `s[from, to)` adi sözdürsə true (tracker: WORD_RE, `^([a-z]{4,15}|[A-Z]{4,15}|[A-Z][a-z]{3,14})$`): 4–15 hərf, hamısı
+     * kiçik, hamısı böyük və ya yalnız birincisi böyük.
+     */
+    private fun ordinaryWord(s: String, from: Int, to: Int): Boolean {
+        val length = to - from
+        if (length < 4 || length > 15) return false
+        var lowers = 0
+        var uppers = 0
+        for (i in from until to) {
+            val c = s[i]
+            if (isLower(c)) lowers++ else if (isUpper(c)) uppers++ else return false
+        }
+        return uppers == 0 || lowers == 0 || (uppers == 1 && isUpper(s[from]))
+    }
+
+    /** Qısa identifikator (tracker: SHORT_ID_RE və `[A-Z0-9]`): 1–16 simvol `A-Z a-z 0-9 _ -`, böyük hərf və ya rəqəm var. */
+    private fun shortId(s: String): Boolean {
+        if (s.isEmpty() || s.length > 16) return false
+        var marked = false
+        for (c in s) {
+            if (!isBase64Url(c)) return false
+            if (isUpper(c) || isDigit(c)) marked = true
+        }
+        return marked
+    }
+
+    /** Statik fayl adı (tracker: `staticFile`): son nöqtədən sonrakı uzantı [STATIC_EXT] siyahısındadır. */
+    private fun staticFile(s: String): Boolean {
+        val dot = s.lastIndexOf('.')
+        return dot > 0 && STATIC_EXT.contains(lowerAscii(s.substring(dot + 1)))
+    }
+
+    /** `^[A-Za-z][a-z]{2,}([A-Z][a-z]{2,})*$`: hər parçası 3+ hərfli camelCase söz (`forgotPassword`). */
+    private fun camelWord(s: String, from: Int, to: Int): Boolean {
+        var i = from
+        if (i >= to || !(isLower(s[i]) || isUpper(s[i]))) return false
+        while (true) {
+            i++
+            var lowers = 0
+            while (i < to && isLower(s[i])) {
+                i++
+                lowers++
+            }
+            if (lowers < 2) return false
+            if (i == to) return true
+            if (!isUpper(s[i])) return false
+        }
+    }
+
+    /**
+     * `^([A-Za-z][a-z]{2,}[0-9]{1,2}|v[0-9]{1,3}|2[fF][aA])$`: 3+ hərfli söz və ardınca 1–2 rəqəm (`step2`, `oauth2`,
+     * `iphone15`), versiya (`v2`, `v10`) və ya `2fa`.
+     */
+    private fun wordWithNumber(s: String, from: Int, to: Int): Boolean {
+        var i = from
+        if (i >= to) return false
+        // `2fa` (böyük-kiçik hərfə baxılmadan) ipucu sözüdür, token deyil.
+        if (to - from == 3 && s[from] == '2' && lower(s[from + 1]) == 'f' && lower(s[from + 2]) == 'a') return true
+        if (s[i] == 'v') {
+            val count = to - i - 1
+            var version = count in 1..3
+            for (k in i + 1 until to) if (!isDigit(s[k])) version = false
+            if (version) return true
+        }
+        if (!(isLower(s[i]) || isUpper(s[i]))) return false
+        i++
+        var lowers = 0
+        while (i < to && isLower(s[i])) {
+            i++
+            lowers++
+        }
+        val digits = to - i
+        if (lowers < 2 || digits < 1 || digits > 2) return false
+        while (i < to) {
+            if (!isDigit(s[i])) return false
+            i++
+        }
+        return true
+    }
+
+    /**
+     * İpucu altındakı hissənin `- _ . ~ :` ilə ayrılmış parçası (`s[from, to)`) tokenə bənzəyirsə true (tracker: `tokenPart`):
+     *  - rəqəmi olmayan parça: böyük hərfi birincidən sonra gəlirsə (`aKdmQz`), amma tam BÖYÜK söz və hər parçası 3+ hərfli
+     *    camelCase söz (`forgotPassword`) istisnadır; `hint` 3-də (ipucu sözünün öz hissəsi) belə parça sayılmır;
+     *  - yalnız rəqəm: 6+ rəqəm və `hint` 1 (ipucu birbaşa əvvəlki hissədədir) və ya 3-dür;
+     *  - hərf və rəqəm qarışıq: 3+ hərfli söz + 1–2 rəqəm (`step2`, `oauth2`) və versiya (`v2`) istisna olmaqla həmişə.
+     */
+    private fun tokenPart(s: String, from: Int, to: Int, hint: Int): Boolean {
+        val length = to - from
+        var digits = 0
+        var innerUpper = false
+        var allUpper = length > 0
+        for (i in from until to) {
+            val c = s[i]
+            if (isDigit(c)) digits++
+            if (isUpper(c)) {
+                if (i > from) innerUpper = true
+            } else {
+                allUpper = false
+            }
+        }
+        if (digits == 0) {
+            if (hint == 3 || !innerUpper || allUpper) return false
+            return !camelWord(s, from, to)
+        }
+        if (digits == length) return length >= 6 && hint != 2
+        return !wordWithNumber(s, from, to)
+    }
+
+    /**
+     * Yol hissəsi (və ya query parametrinin dəyəri) sirrə bənzəyirsə true (tracker: `secretSegment`). `hint`: 0 — ipucu
+     * yoxdur; 1 — sirr sözü birbaşa əvvəlki hissədədir (və ya query yolun sirr sözü ilə bitən hissəsindən sonra gəlir);
+     * 2 — sirr sözü iki hissə əvvəldədir; 3 — hissənin özü sirr sözüdür (`confirm-<token>`). `path`: yol hissəsidir
+     * (query / `props` dəyəri yox). Qaydalar ehtiyatlıdır ki, adi ünvanlar (slug, UUID, məhsul nömrəsi) pozulmasın;
+     * 6 simvoldan qısa hissə heç vaxt tutulmur:
+     *  1) JWT (bax [isJwt]) və tanınan API açarı önü (bax [keyPrefix]);
+     *  2) `+` ilə başlayan telefon nömrəsi (`^\+[0-9][0-9 ().-]{7,18}$`, 9–15 rəqəm);
+     *  3) yalnız rəqəm: 20 və daha çox rəqəm; Luhn yoxlamasından keçən 15–19 rəqəm (kart nömrəsi) — yolda yalnız ipucu
+     *     olduqda və ya ilk rəqəm 3–6 olduqda (kart şəbəkələrinin önləri; `2026…` ilə başlayan sifariş nömrəsi qalır),
+     *     query dəyərində həmişə; `hint` 1 olduqda 6+ rəqəm. 10–14 rəqəmlik çılpaq ədəd (sifariş
+     *     nömrəsi, barkod, vaxt möhürü, `+` işarəsiz telefon) ipucu olmadan tutulmur;
+     *  4) rəqəmləri boşluq və ya tire ilə ayrılmış kart nömrəsi (bax [cardNumber]);
+     *  5) hissənin içində 32 və daha çox simvolluq hex ardıcıllığı (MD5 / SHA / təsadüfi token; bax [hexRun]: `v1:<hex>`,
+     *     `reset-<hex>`, `<hex>.json`), hissə statik fayl adı (bax [staticFile]: `<md5>.jpg`) deyilsə; tiresiz yazılmış UUID
+     *     (düz 32 hex, versiya və variant yerində) ipucu olmayanda istisnadır, çünki tireli UUID kimi adi identifikatordur;
+     *  6) 32 və daha çox simvolluq base64url (sonda ən çoxu iki `=`): kiçik hərf, böyük hərf və rəqəm birlikdə, ayırıcı
+     *     (`-` `_`) uzunluğun 1/8-dən az;
+     *  7) 24+ simvolluq hərf-rəqəm ardıcıllığı, içində rəqəm və hex olmayan hərf (bax [longRun]; cuid və ULID ipucu
+     *     olmayanda istisnadır);
+     *  8) ipucu varsa: hissə yalnız `A-Z a-z 0-9 _ . ~ + = : -` simvollarındandır, statik fayl adı deyil (bax
+     *     [staticFile]) və `- _ . ~ :` ilə ayrılmış parçalarından biri tokenə bənzəyir (bax [tokenPart]), ya da (`hint`
+     *     1, 2) uzunluq 16+ simvoldur və parçalardan heç biri adi söz deyil (bax [ordinaryWord]).
+     */
+    fun secretSegment(s: String, hint: Int, path: Boolean): Boolean {
+        val n = s.length
+        if (n < 6) return false
+        if (isJwt(s) || keyPrefix(s)) return true
+        var digits = 0
+        var separators = 0
+        var allDigits = true
+        var upper = false
+        var lowerCase = false
+        var phone = n in 9..20 && s[0] == '+' && isDigit(s[1])
+        var hintable = true
+        for (i in 0 until n) {
+            val c = s[i]
+            if (isDigit(c)) digits++ else allDigits = false
+            if (isUpper(c)) upper = true
+            if (isLower(c)) lowerCase = true
+            if (c == '-' || c == '_') separators++
+            if (i > 1 && !(isDigit(c) || c == ' ' || c == '(' || c == ')' || c == '.' || c == '-')) phone = false
+            if (!(isAlnum(c) || c == '_' || c == '.' || c == '~' || c == '+' || c == '=' || c == ':' || c == '-')) hintable = false
+        }
+        if (phone && digits in 9..15) return true
+        if (allDigits) return n >= 20 || (n >= 15 && (hint > 0 || !path || s[0] in '3'..'6') && luhn(s)) || hint == 1
+        if (cardNumber(s)) return true
+        if (n >= 32 && hexRun(s, hint) && !staticFile(s)) return true
+        if (n >= 32 && digits > 0 && lowerCase && upper && separators * 8 < n) {
+            // `^[A-Za-z0-9_-]+={0,2}$`
+            var end = n
+            if (s[end - 1] == '=') end--
+            if (s[end - 1] == '=') end--
+            var base64 = true
+            for (i in 0 until end) if (!isBase64Url(s[i])) base64 = false
+            if (base64) return true
+        }
+        if (longRun(s, hint > 0)) return true
+        if (hint == 0 || !hintable || staticFile(s)) return false
+        var word = false
+        var start = 0
+        for (i in 0..n) {
+            val c = if (i < n) s[i] else '-'
+            if (c == '-' || c == '_' || c == '.' || c == '~' || c == ':') {
+                if (tokenPart(s, start, i, hint)) return true
+                if (ordinaryWord(s, start, i)) word = true
+                start = i + 1
+            }
+        }
+        return hint != 3 && n >= 16 && !word
+    }
+
+    /**
+     * `s`-də 32 və daha çox simvolluq hex ardıcıllığı (`0-9 a-f A-F`) varsa true (tracker: `hexRun`). Düz 32 simvolluq
+     * ardıcıllıq tiresiz UUID şəklindədirsə (versiya və variant yerində) ipucu olmayanda sayılmır.
+     */
+    private fun hexRun(s: String, hint: Int): Boolean {
+        val n = s.length
+        var i = 0
+        while (i < n) {
+            val k = i
+            while (i < n && isHexDigit(s[i])) i++
+            if (i - k >= 32) {
+                val uuid = i - k == 32 && s[k + 12] in '1'..'8' &&
+                    (s[k + 16] == '8' || s[k + 16] == '9' || lower(s[k + 16]) == 'a' || lower(s[k + 16]) == 'b')
+                if (hint > 0 || !uuid) return true
+            }
+            i++
+        }
+        return false
+    }
+
+    /**
+     * Yol hissəsinin ipucu növü (tracker: `pathHint`): 2 — sirr sözü (təsdiq kökü başqa sözlə birlikdə də:
+     * `confirm-email`); 1 — telefon sözü (birinci və ya sonuncu söz [PHONE_HINT_WORDS]-dədir); 0 — ipucu yoxdur. Hissə
+     * (açılmış; Azərbaycan hərfləri ASCII-yə gətirilir) hərf-rəqəm olmayan simvollara görə parçalanır; rəqəmi olan parça
+     * nəzərə alınmır, qalanları camelCase sözlərinə ayrılır. Söz sayı 1–3 olmalıdır (uzun slug ipucu deyil:
+     * `how-to-reset-your-password`). İpucu: birinci və ya sonuncu söz [HINT_STEMS] kökü ilə başlayır və ya
+     * [HINT_WORDS]-dədir, ya da ilk / son iki söz birlikdə `signin` / `login`-dir. `2fa` parçası rəqəminə baxmayaraq söz
+     * sayılır. İpucu yalnız təsdiq kökündəndirsə ([SOFT_STEMS]): 3 — hissə təkcə təsdiq sözüdür (`confirm`; sifariş
+     * kontekstini qonşu hissələrə görə [cleanPath] təyin edir); 4 — hissə təkcə `confirmation` sözüdür və ya içində
+     * [ORDER_WORDS] sözü var (`order-confirmation`); 5 — içində [PAY_WORDS] sözü var (`payment-confirmation`).
+     */
+    private fun pathHint(segment: String): Int {
+        val text = fold(segment)
+        val words = ArrayList<String>()
+        var start = 0
+        for (i in 0..text.length) {
+            if (i < text.length && isAlnum(text[i])) continue
+            if (i > start) {
+                var digit = false
+                for (k in start until i) if (isDigit(text[k])) digit = true
+                if (!digit) {
+                    words.addAll(nameWords(text.substring(start, i)))
+                } else if (i - start == 3 && text[start] == '2' && lower(text[start + 1]) == 'f' && lower(text[start + 2]) == 'a') {
+                    words.add("2fa")
+                }
+            }
+            start = i + 1
+        }
+        val n = words.size
+        if (n < 1 || n > 3) return 0
+        val a = hintWord(words[0])
+        val b = hintWord(words[n - 1])
+        if (a == 2 || b == 2 || (n > 1 && (HINT_PAIRS.contains(words[0] + words[1]) || HINT_PAIRS.contains(words[n - 2] + words[n - 1])))) return 2
+        if (a == 1 || b == 1) {
+            for (word in words) if (ORDER_WORDS.contains(word)) return if (PAY_WORDS.contains(word)) 5 else 4
+            return if (n > 1) 2 else if (words[0] == "confirmation") 4 else 3
+        }
+        return if (PHONE_HINT_WORDS.contains(words[0]) || PHONE_HINT_WORDS.contains(words[n - 1])) 1 else 0
+    }
+
+    /** 2 — söz sirr sözüdür ([HINT_WORDS] və ya [HINT_STEMS] kökü); 1 — yalnız təsdiq kökü ([SOFT_STEMS]) ilə başlayır; 0 — ipucu deyil. */
+    private fun hintWord(word: String): Int {
+        if (HINT_WORDS.contains(word)) return 2
+        for (stem in HINT_STEMS) if (word.startsWith(stem)) return if (SOFT_STEMS.contains(stem)) 1 else 2
+        return 0
+    }
+
+    /**
+     * Yol hissəsi (açılmış) bütövlükdə sifariş sözüdürsə ([ORDER_WORDS]; böyük-kiçik hərfə baxılmadan) 1, ödəniş sözüdürsə
+     * ([PAY_WORDS]) 2, qalan halda 0 (tracker: `orderSegment`).
+     */
+    private fun orderSegment(plain: String): Int {
+        val word = lowerAscii(fold(plain))
+        return if (PAY_WORDS.contains(word)) 2 else if (ORDER_WORDS.contains(word)) 1 else 0
+    }
+
+    /** `^[0-9]{6,8}$`: ödəniş kontekstində təsdiq kodu uzunluğunda ədəd (tracker: PAY_CODE_RE). */
+    private fun payCode(s: String): Boolean {
+        if (s.length < 6 || s.length > 8) return false
+        for (c in s) if (!isDigit(c)) return false
+        return true
+    }
+
+    /**
+     * Yol hissəsinin `/` (`%2F`) və `=` ilə ayrılmış parçalarından biri sirrə bənzəyirsə true (tracker: `secretPiece`;
+     * `/x/t=<kart>`, `/reset%2F<açar>`).
+     */
+    private fun secretPiece(plain: String, hint: Int): Boolean {
+        if (plain.indexOf('=') < 0 && plain.indexOf('/') < 0) return false
+        var start = 0
+        for (i in 0..plain.length) {
+            if (i < plain.length && plain[i] != '/' && plain[i] != '=') continue
+            if (secretSegment(plain.substring(start, i), hint, true)) return true
+            start = i + 1
+        }
+        return false
+    }
+
+    /** Sifariş / bron nömrəsinə bənzəyən yol hissəsi (tracker: `refShaped`): yalnız `A-Z 0-9 -` simvolları, ən azı bir rəqəm. */
+    private fun refShaped(s: String): Boolean {
+        var digit = false
+        for (c in s) {
+            if (isDigit(c)) digit = true else if (!isUpper(c) && c != '-') return false
+        }
+        return digit
+    }
+
+    /** `=` işarələrindən ibarət mətn (boş mətn də). */
+    private fun onlyEquals(s: String): Boolean {
+        for (c in s) if (c != '=') return false
+        return true
+    }
+
+    /**
+     * Adın bütün sözləri [ORDER_PARAM_WORDS] siyahısındadırsa true (tracker: `orderParam`; `order`, `order_id`, `orderId`,
+     * `id`). `strict`: sözlərdən biri [ORDER_NAME_WORDS] siyahısında da olmalıdır (`order_id`; təkcə `id` və ya `ref` yox).
+     */
+    private fun orderParam(rawName: String, strict: Boolean): Boolean {
+        val words = nameWords(rawName)
+        var named = !strict
+        for (word in words) {
+            if (!ORDER_PARAM_WORDS.contains(word)) return false
+            if (ORDER_NAME_WORDS.contains(word)) named = true
+        }
+        return named && words.isNotEmpty()
+    }
+
+    /**
+     * utm parametrinin dəyəri (tracker: `utmValue`; `cleaned`: iç-içə ünvan təmizlənmiş, `value`: açılmış, `rawValue`: xam).
+     * Forma kodlaşdırmasındakı kimi `+` boşluq sayılır; `+` ilə başlayan telefon nömrəsi (`%2B994…`) və kart nömrəsi gizlədilir.
+     * Nəticə: parametrin yeni (kodlanmış) dəyəri, dəyişmirsə null.
+     */
+    private fun utmValue(cleaned: String, value: String, rawValue: String): String? {
+        val form = if (rawValue.indexOf('+') < 0) cleaned else rawValue.replace('+', ' ').let { decodeURIComponent(it) ?: it }
+        val masked = redactDigits(redactPhones(form), 0)
+        if (masked == form) return null
+        return if (cleaned != value || jsTrim(masked) == REDACTED) REDACTED else encode(masked)
+    }
+
+    /** `scheme:` başlanğıcının uzunluğu (`^[a-zA-Z][a-zA-Z0-9+.-]*:`, `:` daxil); yoxdursa 0. */
+    private fun schemeLength(text: String): Int {
+        if (text.isEmpty() || !(isLower(text[0]) || isUpper(text[0]))) return 0
+        var i = 1
+        while (i < text.length && (isAlnum(text[i]) || text[i] == '+' || text[i] == '.' || text[i] == '-')) i++
+        return if (i < text.length && text[i] == ':') i + 1 else 0
+    }
+
+    /** Dəyər ünvandırsa true (tracker: URL_VALUE_RE, `^([a-z][a-z0-9+.-]*:)?//`). */
+    private fun isUrlValue(value: String): Boolean = value.startsWith("//", schemeLength(value))
+
+    /** `scheme://host…` başlanğıcının uzunluğu (ilk `/ ? #`-ə qədər; tracker: ORIGIN_RE); yoxdursa 0. */
+    private fun originLength(url: String): Int {
+        val scheme = schemeLength(url)
+        if (scheme == 0 || !url.startsWith("//", scheme)) return 0
+        var i = scheme + 2
+        while (i < url.length && url[i] != '/' && url[i] != '?' && url[i] != '#') i++
+        return i
+    }
+
+    /**
+     * Parametr dəyərinin içində ünvan və ya query sətri ola bilərsə true (tracker: NESTED_RE,
+     * `=|%3d|://|%3a%2f|^%2f|^/`, böyük-kiçik hərfə baxılmadan).
+     */
+    private fun maybeNested(value: String): Boolean =
+        value.indexOf('=') >= 0 || value.contains("%3d", ignoreCase = true) || value.contains("://") ||
+            value.contains("%3a%2f", ignoreCase = true) || value.startsWith("%2f", ignoreCase = true) || value.startsWith("/")
+
+    /**
+     * Dəyərinə sirr qaydaları tətbiq olunmayan parametr (tracker: `keptParam`): klik ID-ləri, tanınan utm adları
+     * ([UTM_NAMES]), `_openstat`, `after` / `before` və adı `cursor` ilə bitən səhifələmə parametrləri (JWT yenə gizlədilir).
+     */
+    private fun keptParam(rawName: String): Boolean {
+        val name = (decodeURIComponent(rawName) ?: rawName).lowercase(Locale.ROOT)
+        return CLICK_IDS.contains(name) || UTM_NAMES.contains(name) || name == "_openstat" || name == "after" || name == "before" ||
+            name.endsWith("cursor")
+    }
+
+    /**
+     * Parametr dəyəri sirrə bənzəyirsə true (tracker: `secretValue`). `tel:` / `sms:` önlü dəyər telefon nömrəsi kimi
+     * (6+ rəqəm) yoxlanır; forma kodlaşdırmasında `+` boşluqdur (`n=4111+1111+1111+1111`), ona görə dəyər `+` boşluqla
+     * əvəz olunmuş halda da yoxlanır.
+     */
+    private fun secretValue(value: String, rawValue: String, hint: Int): Boolean {
+        if (prefixed(value, "tel:") || prefixed(value, "sms:")) return secretSegment(value.substring(4), 1, false)
+        if (secretSegment(value, hint, false)) return true
+        if (rawValue.indexOf('+') < 0) return false
+        val form = rawValue.replace('+', ' ')
+        return secretSegment(jsTrim(decodeURIComponent(form) ?: form), hint, false)
+    }
+
+    /**
+     * Tək `ad=dəyər` hissəsi (tracker: `cleanParam`); null: parametr silinir. Dəyər JWT-yə bənzəyirsə gizlədilir; dəyərin
+     * özü ünvan və ya query sətridirsə o da təmizlənir (iki səviyyəyədək; daha dərində belə dəyər tam atılır). Qalan
+     * dəyər (açılmış halda) sirrə bənzəyirsə (bax [secretValue]) `ad=[redacted]` olur; [keptParam] parametrlərinin dəyərinə
+     * bu qayda tətbiq olunmur. `hint`: yolun son hissəsi sirr sözüdürsə 1 (`/reset?t=<token>`): dəyər ipucu qaydası ilə
+     * də yoxlanır. Adsız hissə (`/verify?<token>`) və dəyəri yalnız `=` işarələrindən ibarət və ya boş olan hissə (base64
+     * sonluğu: `/reset?<token>=`) özü yoxlanır — ipucu altında `/` ilə ayrılmış parçaları da (standart base64); adı sirrə
+     * bənzəyən hissə (`?<JWT>=1`) bütöv gizlədilir. Dəyişməyən hissə olduğu kimi qaytarılır (yenidən kodlanmır).
+     */
+    private fun cleanParam(part: String, extra: Set<String>, ads: Boolean, depth: Int, pathHint: Int): String? {
+        val eq = part.indexOf('=')
+        val rawName = if (eq < 0) part else part.substring(0, eq)
+        val rawValue = if (eq < 0) "" else part.substring(eq + 1)
+        if (sensitiveParam(rawName, extra, ads, rawValue)) return null
+        // `pathHint` 4, 5: yol təsdiq sözü ilə bitir (4 — sifariş kontekstində); sifariş nömrəsi parametri (`order_id`; sifariş
+        // kontekstində `ref`, `id` də) dəyəri sifariş nömrəsinə bənzəyəndə ipucusuz yoxlanır.
+        val hint = if (pathHint < 4) {
+            pathHint
+        } else if (orderParam(rawName, pathHint == 5) && refShaped(decodeURIComponent(rawValue) ?: rawValue)) {
+            0
+        } else {
+            1
+        }
+        // Dəyər yoxdursa, boşdursa və ya yalnız `=` işarələrindəndirsə (base64 tokeninin sonluğu) ad bütöv token kimi yoxlanır.
+        if (eq < 0 || onlyEquals(rawValue)) {
+            val bare = decodeSegment(rawName)
+            if (secretSegment(bare, hint, false) || (hint > 0 && secretPiece(bare, hint))) return REDACTED
+            if (eq < 0) return part
+        }
+        // Adın özü sirrə bənzəyirsə (`?<JWT>=1`) hissə bütöv gizlədilir.
+        if (rawName.length >= 6 && secretSegment(decodeSegment(rawName), 0, false)) return REDACTED
+        val shortest = if (hint > 0) 6 else 8
+        if (rawValue.length < shortest) return part
+        if (isJwt(rawValue)) return "$rawName=$REDACTED"
+        val value = decodeURIComponent(rawValue) ?: rawValue
+        var plain = !maybeNested(rawValue)
+        val isUrl = !plain && (isUrlValue(value) || value.startsWith("/"))
+        if (!plain && !isUrl && value.indexOf('=') < 1) plain = true
+        if (!plain && depth >= 2) return if (value.indexOf('=') < 0) part else null
+        val cleaned = if (plain) value else if (isUrl) scrubUrl(value, extra, ads, depth + 1) else cleanQuery(value, extra, ads, depth + 1, 0)
+        // utm dəyərində telefon (`+` ilə) və kart nömrəsi də gizlədilir (qalan sirr qaydaları tətbiq olunmur, bax [keptParam]).
+        if (UTM_NAMES.contains((decodeURIComponent(rawName) ?: rawName).lowercase(Locale.ROOT))) {
+            val utm = utmValue(cleaned, value, rawValue)
+            if (utm != null) return "$rawName=$utm"
+        }
+        if (cleaned != value) return rawName + "=" + (if (cleaned == REDACTED) REDACTED else encode(cleaned))
+        return if (!isUrl && !keptParam(rawName) && secretValue(value, rawValue, hint)) "$rawName=$REDACTED" else part
+    }
+
+    /**
+     * Query sətirindən həssas parametrləri, reklam razılığı yoxdursa klik ID-lərini də silir (tracker: `cleanQuery`;
+     * başdakı `?` olmadan alır və qaytarır). Ayırıcı həm `&`, həm `;` ola bilər; qalan hissələrin ayırıcısı saxlanır.
+     */
+    private fun cleanQuery(query: String, extra: Set<String>, ads: Boolean, depth: Int, hint: Int): String {
+        val out = StringBuilder(query.length)
+        val n = query.length
+        var start = 0
+        for (i in 0..n) {
+            if (i < n && query[i] != '&' && query[i] != ';') continue
+            if (i > start) {
+                val part = cleanParam(query.substring(start, i), extra, ads, depth, hint)
+                if (part != null) {
+                    // Hissədən əvvəlki ayırıcı; ilk saxlanan hissədən əvvəl ayırıcı yazılmır.
+                    if (out.isNotEmpty()) out.append(query[start - 1])
+                    out.append(part)
+                }
+            }
+            start = i + 1
+        }
+        return out.toString()
+    }
+
+    /** Yol hissəsi sirr kimi yoxlanmazdan əvvəl açılır (512 simvoldan uzun və ya açılmayan hissə olduğu kimi qalır). */
+    private fun decodeSegment(segment: String): String =
+        if (segment.length <= 512 && segment.indexOf('%') >= 0) decodeURIComponent(segment) ?: segment else segment
+
+    /** `^[0-9]{7,15}$`: telefon sözündən sonrakı yol hissəsi (tracker: PHONE_DIGITS_RE). */
+    private fun phoneDigits(s: String): Boolean {
+        if (s.length < 7 || s.length > 15) return false
+        for (c in s) if (!isDigit(c)) return false
+        return true
+    }
+
+    /**
+     * [cleanPath]-in nəticəsi: təmizlənmiş yol və query üçün ipucu (tracker: `pathHinted`) — yolun son (boş olmayan) hissəsi
+     * sirr sözü idisə 1; ipucu yalnız təsdiq kökündən idisə sifariş kontekstində 4, onsuz 5 (bax [cleanParam]); qalan halda 0.
+     */
+    private class CleanedPath(val text: String, val hinted: Int)
+
+    /**
+     * Yolun (və hash marşrutunun) hissələrini yoxlayır (tracker: `cleanPath`): sirrə bənzəyən hissə `[redacted]` olur,
+     * matris parametrləri (`;jsessionid=…`, `;t=<token>`) query parametri kimi təmizlənir (bax [cleanParam]), hissənin `/`
+     * (`%2F`) və `=` ilə ayrılmış parçaları da yoxlanır (bax [secretPiece]). Sirr sözü olan hissədən (bax [pathHint]) sonrakı
+     * İKİ hissə ipucu ilə yoxlanır (`/account/reset/<id>/<token>`); sirr sözünün öz hissəsində yalnız rəqəmli parça
+     * yoxlanır (`confirm-<token>`). Telefon sözü olan hissədən (`/phone/`, `/tel/`) birbaşa sonrakı hissə yalnız 7–15
+     * rəqəmdirsə gizlədilir. İpucu ilə yoxlanan hissə gizlədilirsə ondan dərhal əvvəlki, ipucu altındakı qısa
+     * identifikator da (bax [shortId]: `/reset/MQ/<token>`) gizlədilir. Toxunulmayan hissələr olduğu kimi qalır.
+     */
+    private fun cleanPath(path: String, extra: Set<String>, ads: Boolean, depth: Int): CleanedPath {
+        if (path.isEmpty()) return CleanedPath(path, 0)
+        val segments = ArrayList<String>()
+        var from = 0
+        for (i in 0..path.length) {
+            if (i < path.length && path[i] != '/') continue
+            segments.add(path.substring(from, i))
+            from = i + 1
+        }
+        var left = 0
+        var hinted = 0
+        var phone = false
+        var previous = -1
+        var previousTail = ""
+        var before = ""
+        var ref = 0
+        var refPay = false
+        for (i in segments.indices) {
+            val segment = segments[i]
+            if (segment.isEmpty()) continue
+            val semi = segment.indexOf(';')
+            val first = if (semi < 0) segment else segment.substring(0, semi)
+            val plain = decodeSegment(first)
+            var kind = pathHint(plain)
+            val soft = kind >= 3
+            var pay = kind == 5
+            var order = pay || kind == 4
+            if (soft) {
+                // İpucu yalnız təsdiq kökündəndir: əvvəlki və ya sonrakı (boş olmayan) hissə sifariş sözüdürsə sifariş kontekstidir.
+                if (kind == 3) {
+                    var next = i + 1
+                    while (next < segments.size && segments[next].isEmpty()) next++
+                    val near = orderSegment(before)
+                    val after = if (next < segments.size) orderSegment(decodeSegment(segments[next].substringBefore(';'))) else 0
+                    order = near > 0 || after > 0
+                    pay = near == 2 || after == 2
+                } else if (orderSegment(before) == 2) {
+                    pay = true
+                }
+                kind = 2
+            }
+            val self = kind == 2
+            val own = if (self) (if (order) 4 else if (soft) 5 else 1) else 0
+            val hint = if (left == 2) 1 else if (left == 1) 2 else if (self) 3 else 0
+            // Sifariş kontekstindəki təsdiq sözündən sonrakı iki hissədə sifariş nömrəsinə bənzəyən hissə (bax [refShaped])
+            // ipucusuz yoxlanır; ödəniş kontekstində 6–8 rəqəmlik kod istisnadır.
+            val shown = if (ref > 0 && refShaped(plain) && !(refPay && payCode(plain))) 0 else hint
+            val tail = StringBuilder()
+            if (semi >= 0) {
+                // Matris parametrləri query parametri kimi yoxlanır (ad və dəyər); ipucu hissənin öz ipucudur.
+                var j = semi + 1
+                while (j <= segment.length) {
+                    var stop = j
+                    while (stop < segment.length && segment[stop] != ';') stop++
+                    val bit = cleanParam(segment.substring(j, stop), extra, ads, depth, if (self) own else hint)
+                    if (bit != null) tail.append(';').append(bit)
+                    j = stop + 1
+                }
+            }
+            val masked = secretSegment(plain, shown, true) || (phone && phoneDigits(plain)) || secretPiece(plain, shown)
+            phone = kind == 1
+            if (masked && previous >= 0) segments[previous] = REDACTED + previousTail
+            segments[i] = (if (masked) REDACTED else first) + tail
+            previous = if (!masked && (hint == 1 || hint == 2) && shortId(plain)) i else -1
+            previousTail = tail.toString()
+            left = if (self) 2 else if (left > 0) left - 1 else 0
+            before = plain
+            ref = if (self) (if (order) 2 else 0) else if (ref > 0) ref - 1 else 0
+            if (self) refPay = pay
+            hinted = own
+        }
+        return CleanedPath(segments.joinToString("/"), hinted)
+    }
+
+    /**
+     * Ünvandan həssas query parametrlərini, sirrə bənzəyən yol hissələrini, marşrut olmayan fraqmenti və e-poçta bənzər
+     * hissələri silir (tracker: `scrubUrl`). `depth`: parametr dəyərinin içindəki ünvan üçün iç-içəlik səviyyəsi.
+     */
+    private fun scrubUrl(url: String, extra: Set<String>, ads: Boolean, depth: Int): String {
+        var href = url
+        var hash = ""
+        var query: String? = null
+        var i = href.indexOf('#')
+        if (i >= 0) {
+            hash = href.substring(i)
+            href = href.substring(0, i)
+        }
+        i = href.indexOf('?')
+        if (i >= 0) {
+            query = href.substring(i + 1)
+            href = href.substring(0, i)
+        }
+        // http / https: sxem və host toxunulmaz qalır (istifadəçi adı / parol hissəsi sonuncu `@` işarəsinədək silinir).
+        // Başqa sxemlərdə (tətbiq keçidi: `myapp://reset/123456`) «host» yolun ilk hissəsidir: o da sirr sözü ola bilər
+        // və özü gizlədilə bilər.
+        val originEnd = originLength(href)
+        var head = href.substring(0, originEnd)
+        val at = head.lastIndexOf('@')
+        if (at >= 0) head = head.substring(0, head.indexOf("//") + 2) + head.substring(at + 1)
+        var path = href.substring(originEnd)
+        if (originEnd > 0 && !head.startsWith("http:", ignoreCase = true) && !head.startsWith("https:", ignoreCase = true)) {
+            val cut = head.indexOf("//") + 2
+            path = head.substring(cut) + path
+            head = head.substring(0, cut)
+        }
+        var cleaned = cleanPath(path, extra, ads, depth)
+        val rest = StringBuilder(cleaned.text)
+        // Yol sirr sözü ilə bitirsə (`/reset?t=<token>`) query dəyərləri də ipucu ilə yoxlanır.
+        if (query != null) {
+            val q = cleanQuery(query, extra, ads, depth, cleaned.hinted)
+            if (q.isNotEmpty()) rest.append('?').append(q)
+        }
+        // Hash marşrutu (`#/…`, `#!…`) saxlanır və yol kimi təmizlənir; onun da öz query hissəsi ola bilər
+        // (`#/callback?access_token=…`). Başqa fraqment atılır.
+        if (hash.length > 1 && (hash[1] == '!' || hash[1] == '/')) {
+            i = hash.indexOf('?')
+            query = if (i >= 0) hash.substring(i + 1) else null
+            var route = if (i >= 0) hash.substring(1, i) else hash.substring(1)
+            var extraQuery = ""
+            var join = ""
+            // `?` olmadan yazılmış parametrlər (`#/home&state=…&code=…`, `#/access_token=…`): birinci `&`-dən sonrakı hissə
+            // və `=` olan son yol hissəsi query kimi təmizlənir. `=` işarəsi matris parametrindədirsə (`#/reset;t=<token>`:
+            // hissədə ondan əvvəl `;` var) hissə yolda qalır və [cleanPath] onu öz ipucu ilə təmizləyir; növbəti hissələrə baxılır.
+            if (route.indexOf('=') >= 0) {
+                val amp = route.indexOf('&')
+                if (amp >= 0) {
+                    extraQuery = route.substring(amp + 1)
+                    route = route.substring(0, amp)
+                    join = "&"
+                }
+                var eq = route.indexOf('=')
+                while (eq >= 0) {
+                    val semi = route.indexOf(';', route.lastIndexOf('/', eq) + 1)
+                    if (semi < 0 || semi > eq) break
+                    eq = route.indexOf('/', eq)
+                    if (eq >= 0) eq = route.indexOf('=', eq)
+                }
+                if (eq >= 0) {
+                    var cut = route.lastIndexOf('/', eq) + 1
+                    if (cut == 0 && route[0] == '!') cut = 1
+                    extraQuery = route.substring(cut) + (if (join.isNotEmpty()) "&$extraQuery" else "")
+                    route = route.substring(0, cut)
+                    join = ""
+                }
+            }
+            cleaned = cleanPath(route, extra, ads, depth)
+            val hint = cleaned.hinted
+            if (extraQuery.isNotEmpty()) extraQuery = cleanQuery(extraQuery, extra, ads, depth, hint)
+            rest.append('#').append(cleaned.text)
+            if (extraQuery.isNotEmpty()) rest.append(join).append(extraQuery)
+            if (query != null) {
+                val q = cleanQuery(query, extra, ads, depth, hint)
+                if (q.isNotEmpty()) rest.append('?').append(q)
+            }
+        }
+        return head + redactEmails(rest.toString())
+    }
+
+    /**
+     * `+` ilə başlayan telefon nömrələrini gizlədir (tracker: `redactPhones`): `+` və ardınca rəqəm, sonra rəqəm və
+     * ayırıcılar (boşluq, mötərizə, nöqtə, tire; `+`-dan sonra ən çoxu 24 simvol), cəmi 7–15 rəqəm.
+     */
+    private fun redactPhones(s: String): String {
+        if (s.indexOf('+') < 0) return s
+        val n = s.length
+        val out = StringBuilder(n)
+        var i = 0
+        while (i < n) {
+            val c = s[i]
+            if (c == '+' && i + 1 < n && isDigit(s[i + 1])) {
+                var digits = 0
+                var last = i
+                var j = i + 1
+                while (j < n && j - i <= 24) {
+                    val d = s[j]
+                    if (isDigit(d)) {
+                        digits++
+                        last = j
+                    } else if (d != ' ' && d != '(' && d != ')' && d != '.' && d != '-') {
+                        break
+                    }
+                    j++
+                }
+                if (digits in 7..15) {
+                    out.append(REDACTED)
+                    i = last + 1
+                } else {
+                    out.append('+')
+                    i++
+                }
+            } else {
+                out.append(c)
+                i++
+            }
+        }
+        return out.toString()
+    }
+
+    /**
+     * Kart nömrəsinin rəqəmləri arasında ola bilən ayırıcı (tracker: `cardGap`): boşluq, tire, `/`, qırılmayan (U+00A0),
+     * nazik (U+2009) və dar qırılmayan (U+202F) boşluq.
+     */
+    private fun cardGap(c: Char): Boolean = c == ' ' || c == '-' || c == '/' || c.code == 0xA0 || c.code == 0x2009 || c.code == 0x202F
+
+    /**
+     * Rəqəm ardıcıllıqlarını gəzir (tracker: `redactDigits`). Ardıcıllıq: rəqəmlər, aralarında ən çoxu üç ayırıcı (bax
+     * [cardGap]) ola bilər. `min` 0: Luhn yoxlamasından keçən 15–19 rəqəmlik ardıcıllıq (kart nömrəsi) gizlədilir;
+     * `min` > 0: ayırıcısız `min` və daha çox rəqəm gizlədilir (ekran adında telefon). Kart nömrəsinə bənzəyən rəqəmlər
+     * bütövlükdə sirr ardıcıllığının (bax [secretRun]: hex token, IBAN) içindədirsə toxunulmur: ardıcıllığı sonra [redactRuns]
+     * bütöv gizlədir. `[a, b)` — sonuncu yoxlanmış token simvolları ardıcıllığıdır (hər ardıcıllıq bir dəfə yoxlanır, vaxt
+     * xətti qalır).
+     */
+    private fun redactDigits(s: String, min: Int): String {
+        val n = s.length
+        val out = StringBuilder(n)
+        val digits = StringBuilder()
+        var i = 0
+        var a = 0
+        var b = 0
+        var inside = false
+        while (i < n) {
+            if (!isDigit(s[i])) {
+                out.append(s[i])
+                i++
+                continue
+            }
+            digits.setLength(0)
+            var last = i
+            var j = i
+            while (j < n) {
+                val c = s[j]
+                if (isDigit(c)) {
+                    digits.append(c)
+                    last = j
+                    j++
+                    continue
+                }
+                if (min > 0) break
+                // Rəqəmlər arasında ən çoxu üç ayırıcı (bax [cardGap]) ola bilər.
+                var k = j
+                while (k < n && k - j < 3 && cardGap(s[k])) k++
+                if (k == j || k >= n || !isDigit(s[k])) break
+                j = k
+            }
+            var card = min == 0 && digits.length in 15..19 && luhn(digits)
+            if (card) {
+                if (i >= b) {
+                    a = i
+                    while (a > b && isBase64Url(s[a - 1])) a--
+                    b = i
+                    while (b < n && isBase64Url(s[b])) b++
+                    inside = b - a >= 14 && secretRun(s, a, b)
+                }
+                if (inside && last < b) card = false
+            }
+            if (if (min > 0) digits.length >= min else card) out.append(REDACTED) else out.append(s, i, last + 1)
+            i = last + 1
+        }
+        return out.toString()
+    }
+
+    private fun isLetter(c: Char) = isLower(c) || isUpper(c)
+
+    /** IBAN (tracker: `iban`): 2 hərf + 2 rəqəm + 11–30 hərf / rəqəm (cəmi 15–34 simvol) və mod 97 yoxlaması (ISO 13616). */
+    private fun iban(s: String): Boolean {
+        val n = s.length
+        if (n < 15 || n > 34 || !isLetter(s[0]) || !isLetter(s[1]) || !isDigit(s[2]) || !isDigit(s[3])) return false
+        var r = 0
+        for (i in 0 until n) {
+            val c = s[(i + 4) % n]
+            r = if (isDigit(c)) {
+                (r * 10 + (c - '0')) % 97
+            } else if (isLetter(c)) {
+                (r * 100 + (lower(c) - 'a' + 10)) % 97
+            } else {
+                return false
+            }
+        }
+        return r == 1
+    }
+
+    /**
+     * Token simvollarından (`A-Z a-z 0-9 _ -`) ibarət ardıcıllıq adi addırsa true (tracker: `wordy`): yalnız sözlərdən
+     * (bir hərf və ardınca 2+ kiçik hərf: `step`, `Shipping`), 1–4 rəqəmlik ədədlərdən və `-` `_` ayırıcılarından ibarətdir
+     * (`Step3ShippingAddressViewController`).
+     */
+    private fun wordy(s: String): Boolean {
+        val n = s.length
+        var i = 0
+        while (i < n) {
+            val c = s[i]
+            if (c == '-' || c == '_') {
+                i++
+                continue
+            }
+            val k = i
+            if (isDigit(c)) {
+                while (i < n && isDigit(s[i])) i++
+                if (i - k > 4) return false
+                continue
+            }
+            i++
+            while (i < n && isLower(s[i])) i++
+            if (i - k < 3) return false
+        }
+        return true
+    }
+
+    /** `w[i, j)` token simvollarından ibarət ardıcıllıqdır; ondan başlayan JWT-nin (bax [isJwt]) sonu, JWT deyilsə -1 (tracker: `jwtEnd`). */
+    private fun jwtEnd(w: String, i: Int, j: Int): Int {
+        val n = w.length
+        if (j - i < 11 || j >= n || w[j] != '.' || !w.startsWith("eyJ", i)) return -1
+        var k = j + 1
+        while (k < n && isBase64Url(w[k])) k++
+        if (k - j < 9) return -1
+        if (k >= n || w[k] != '.') return k
+        k++
+        while (k < n && isBase64Url(w[k])) k++
+        return k
+    }
+
+    /**
+     * `w[i, j)` token simvollarından ibarət ardıcıllıqdır (ən azı 14 simvol); sirdirsə true (tracker: `secretRun`):
+     *  - tanınan API açarı önü (bax [keyPrefix]);
+     *  - qalan qaydalar ardıcıllıq fayl və ya domen adının hissəsi olmayanda (yanında `.` və ondan o yana token simvolu
+     *    yoxdur) tətbiq olunur: IBAN (bax [iban]); 32+ simvolluq ardıcıllıq üçün yolun hex, base64 və uzun hərf-rəqəm
+     *    qaydaları ([secretSegment] 5–7; tiresiz UUID istisnadır) — yalnız rəqəmdən ibarət və adi ad (bax [wordy]) olan
+     *    ardıcıllıq istisnadır. 32 simvoldan qısa ardıcıllıq (ödəniş sisteminin ID-si `pi_…`, Firebase UID) adi
+     *    identifikator sayılır.
+     */
+    private fun secretRun(w: String, i: Int, j: Int): Boolean {
+        val s = w.substring(i, j)
+        if (keyPrefix(s)) return true
+        if ((i > 1 && w[i - 1] == '.' && isBase64Url(w[i - 2])) || (j + 1 < w.length && w[j] == '.' && isBase64Url(w[j + 1]))) return false
+        if (iban(s)) return true
+        if (j - i < 32) return false
+        var allDigits = true
+        var allHex = true
+        for (c in s) {
+            if (!isDigit(c)) allDigits = false
+            if (!isHexDigit(c)) allHex = false
+        }
+        if (allDigits || (!allHex && wordy(s))) return false
+        return secretSegment(s, 0, false)
+    }
+
+    /** Ünvanda parametr adından əvvəl gələ bilən işarə: `? & ; # / !` (tracker: `paramStart`). */
+    private fun paramStart(c: Char): Boolean = c == '?' || c == '&' || c == ';' || c == '#' || c == '/' || c == '!'
+
+    /**
+     * Mətn hissəsində sirr ardıcıllıqlarını gizlədir (tracker: `redactRuns`). Hissə token simvollarının (`A-Z a-z 0-9 _ -`)
+     * ardıcıllıqlarına bölünür; qalan hər simvol (durğu işarələri, dırnaqlar, görünməyən simvollar) ayırıcıdır. Ardıcıllıq
+     * JWT-nin başlanğıcıdırsa (bax [jwtEnd]) bütün JWT, sirdirsə (bax [secretRun]) özü `[redacted]` olur. `url`: mətn
+     * təmizlənmiş ünvandır (bax [scrubToken]) — `%XX` kodu ayırıcıdır, dəyərinə sirr qaydaları tətbiq olunmayan parametrin
+     * (bax [keptParam]: klik ID-si, utm) dəyəri növbəti `&`, `;` və ya `#` işarəsinədək ötürülür.
+     */
+    private fun redactRuns(w: String, url: Boolean): String {
+        val n = w.length
+        var out: StringBuilder? = null
+        var keep = 0
+        var i = 0
+        while (i < n) {
+            if (url && w[i] == '%' && i + 2 < n && isHexDigit(w[i + 1]) && isHexDigit(w[i + 2])) {
+                i += 3
+                continue
+            }
+            if (!isBase64Url(w[i])) {
+                i++
+                continue
+            }
+            var j = i
+            while (j < n && isBase64Url(w[j])) j++
+            if (url && j < n && w[j] == '=' && (i == 0 || paramStart(w[i - 1])) && keptParam(w.substring(i, j))) {
+                i = j + 1
+                while (i < n && w[i] != '&' && w[i] != ';' && w[i] != '#') i++
+                continue
+            }
+            var e = jwtEnd(w, i, j)
+            if (e < 0 && j - i >= 14 && secretRun(w, i, j)) e = j
+            if (e < 0) {
+                i = j
+                continue
+            }
+            if (out == null) out = StringBuilder(n)
+            out.append(w, keep, i).append(REDACTED)
+            keep = e
+            i = e
+        }
+        return if (out == null) w else out.append(w, keep, n).toString()
+    }
+
+    /**
+     * Mətn hissəsi query sətri kimi təmizlənməlidirsə true (tracker: `pairText`): `ad=` ilə başlayır (ad: `A-Z a-z 0-9 _ - .
+     * % [ ]`) və ya ardınca `&` gəlir (`a=1&token=…`), ya da tək cütdür, adı həssasdır (bax [sensitiveParam]) və dəyəri 6+
+     * simvolluqdur, token simvolu, `%`, `+` və ya `.` ilə başlayır, içində rəqəm və ya böyük hərf var
+     * (`session_id=Xk29LmQa`; `code=200`, `key=value` və `auth="…"` qalır).
+     */
+    private fun pairText(w: String, extra: Set<String>, ads: Boolean): Boolean {
+        val eq = w.indexOf('=')
+        val n = w.length
+        if (eq < 1) return false
+        for (i in 0 until eq) {
+            val c = w[i]
+            if (!isBase64Url(c) && c != '.' && c != '%' && c != '[' && c != ']') return false
+        }
+        if (w.indexOf('&', eq) > 0) return true
+        if (n - eq < 7) return false
+        val first = w[eq + 1]
+        if (!isBase64Url(first) && first != '%' && first != '+' && first != '.') return false
+        for (i in eq + 1 until n) {
+            if (isDigit(w[i]) || isUpper(w[i])) return sensitiveParam(w.substring(0, eq), extra, ads, w.substring(eq + 1))
+        }
+        return false
+    }
+
+    /** Hissə `Bearer` sözü ilə bitirsə (böyük-kiçik hərfə baxılmadan; əvvəlində hərf yoxdur) true (tracker: `bearerWord`). */
+    private fun bearerWord(w: String): Boolean {
+        val n = w.length
+        if (n < 6 || (n > 6 && isLetter(w[n - 7]))) return false
+        val word = "bearer"
+        for (i in 0 until 6) if (lower(w[n - 6 + i]) != word[i]) return false
+        return true
+    }
+
+    /**
+     * `Bearer` sözündən sonrakı hissənin əvvəlindəki tokenin uzunluğu (tracker: `bearerEnd`): `A-Z a-z 0-9 . _ ~ + / = -`
+     * simvollarından 8+ simvol, içində rəqəm və ya (birincidən sonra) böyük hərf var; token deyilsə 0.
+     */
+    private fun bearerEnd(w: String): Int {
+        val n = w.length
+        var mixed = false
+        var i = 0
+        while (i < n) {
+            val c = w[i]
+            if (isDigit(c) || (i > 0 && isUpper(c))) {
+                mixed = true
+            } else if (!isLetter(c) && c != '.' && c != '_' && c != '~' && c != '+' && c != '/' && c != '=' && c != '-') {
+                break
+            }
+            i++
+        }
+        return if (i >= 8 && mixed) i else 0
+    }
+
+    /**
+     * Mətnin boşluqlarla ayrılmış bir hissəsi (tracker: `scrubToken`). Ünvan şəklindədirsə (`sxem://`, `//`, `/` və ya
+     * `?` ilə başlayır, içində `?` və ondan sonra `=` var, ya da hash marşrutudur) ünvan kimi təmizlənir; `#` ilə başlayıb
+     * `=` daşıyırsa query kimi; `ad=dəyər` cütüdürsə (bax [pairText]) əvvəlcə query kimi təmizlənir; sonra hər halda sirr
+     * ardıcıllıqları gizlədilir (bax [redactRuns]: ünvanın ardınca durğu işarəsi və ya dırnaq gələndə hissə bütöv dəyər olmur).
+     */
+    private fun scrubToken(w: String, extra: Set<String>, ads: Boolean): String {
+        val n = w.length
+        val c = w[0]
+        val q = w.indexOf('?')
+        val route = n > 1 && c == '#' && (w[1] == '!' || w[1] == '/')
+        if (isUrlValue(w) || c == '/' || (c == '?' && n > 1) || (q > 0 && w.indexOf('=', q) > 0) || route) {
+            return if (n > MAX_TEXT_URL) REDACTED else redactRuns(scrubUrl(w, extra, ads, 0), true)
+        }
+        if (c == '#' && w.indexOf('=') > 0) {
+            val cleaned = cleanQuery(w.substring(1), extra, ads, 0, 0)
+            return if (cleaned.isEmpty()) "" else redactRuns("#$cleaned", true)
+        }
+        return redactRuns(if (pairText(w, extra, ads)) cleanQuery(w, extra, ads, 0, 0) else w, false)
+    }
+
+    /**
+     * `props` / `traits` mətn dəyəri (tracker: `scrubText`; ekran adı da buradan keçir). Kənar boşluqlar atıldıqdan sonra
+     * dəyər bütöv JWT və ya kart nömrəsidirsə `[redacted]` olur; ünvandırsa ünvan kimi təmizlənir, sonra sirr ardıcıllıqları
+     * gizlədilir (bax [redactRuns]; [MAX_TEXT_URL]-dən uzun ünvan tam gizlədilir). Qalan halda: e-poçta bənzər hissələr, `+` ilə başlayan telefon nömrələri və kart nömrələri
+     * (Luhn) gizlədilir, sonra boşluqlarla ayrılmış hər hissə [scrubToken] ilə yoxlanır.
+     */
+    private fun scrubText(value: String, extra: Set<String>, ads: Boolean): String {
+        val t = jsTrim(value)
+        if (isJwt(t) || cardNumber(t)) return REDACTED
+        if (isUrlValue(t)) return if (t.length > MAX_TEXT_URL) REDACTED else redactRuns(scrubUrl(t, extra, ads, 0), true)
+        val s = redactDigits(redactPhones(redactEmails(value)), 0)
+        val n = s.length
+        val out = StringBuilder(n)
+        var i = 0
+        var bearer = false
+        while (i < n) {
+            var j = i
+            while (j < n && isSpace(s[j])) j++
+            out.append(s, i, j)
+            i = j
+            while (j < n && !isSpace(s[j])) j++
+            if (j > i) {
+                val w = s.substring(i, j)
+                val e = if (bearer) bearerEnd(w) else 0
+                if (e > 0) {
+                    out.append(REDACTED)
+                    if (e < w.length) out.append(scrubToken(w.substring(e), extra, ads))
+                } else {
+                    out.append(scrubToken(w, extra, ads))
+                }
+                bearer = bearerWord(w)
+            }
+            i = j
+        }
+        return out.toString()
+    }
+
+    /**
+     * Ekran adı (vebdə səhifə başlığı; tracker: `scrubLabel`): `props` mətn dəyəri kimi təmizlənir (bax [scrubText];
+     * ünvan şəklindədirsə ünvan kimi: `/reset-password/<token>`), sonra ayırıcısız 9 və daha çox rəqəm (telefon)
+     * `[redacted]` olur. Ad və soyad tanınmır.
+     */
+    fun label(value: String, extra: Set<String> = emptySet(), ads: Boolean = true): String = redactDigits(scrubText(value, extra, ads), 9)
+
+    /**
+     * NUL simvolunu silir və mətni ən çox `limit` UTF-16 vahidinə kəsir; surroqat cütü ortadan bölünmür
+     * (tracker: `cut`).
+     */
+    fun cut(value: String, limit: Int): String {
+        val cleaned = text(value)
+        if (cleaned.length <= limit) return cleaned
+        return cleaned.substring(0, if (Character.isHighSurrogate(cleaned[limit - 1])) limit - 1 else limit)
+    }
+
+    /**
+     * Keçidi göndərilə bilən formaya gətirir. Qaydalar veb tracker-in `cleanUrl` funksiyası ilə eynidir və ortaq
+     * vektorlarla yoxlanır (spec/vectors/sanitize-url.json):
+     * - adı həssas olan (bax [sensitiveParam]) və ya konfiqin `strip_params` siyahısında olan query parametrləri silinir;
+     *   ayırıcı kimi həm `&`, həm `;` tanınır; `utm_*` qalır; klik ID-ləri yalnız `ads` (reklam razılığı) olduqda qalır;
+     * - JWT-yə bənzəyən dəyər `ad=[redacted]` olur; dəyəri ünvan və ya query sətri olan parametr (`redirect=https%3A…`)
+     *   eyni qaydalarla, iki səviyyəyədək təmizlənir;
+     * - yolun sirrə oxşayan hissələri (bax [secretSegment]) və e-poçta bənzər mətn `[redacted]` olur;
+     * - hash marşrutu (`#/…`, `#!…`) yol kimi təmizlənir, başqa fraqment və istifadəçi adı / parol hissəsi silinir;
+     * - nəticə 2048 simvola kəsilir.
+     * [MAX_URL_LENGTH]-dən uzun ünvan təmizlənməzdən əvvəl qısaldılır (bax [shorten]).
+     */
+    fun cleanUrl(url: String, extraStrip: Set<String> = emptySet(), ads: Boolean = true): String =
+        cut(scrubUrl(if (url.length > MAX_URL_LENGTH) shorten(url) else url, extraStrip, ads, 0), 2048)
+
+    /**
+     * [MAX_URL_LENGTH]-dən uzun ünvanı qısaldır (tracker: `shorten`): query və fraqment atılır, yol [MAX_URL_LENGTH]
+     * simvola (UTF-16 vahidi), son bütöv hissəyə qədər kəsilir.
+     */
+    private fun shorten(url: String): String {
+        var end = MAX_URL_LENGTH
+        val q = url.indexOf('?')
+        val h = url.indexOf('#')
+        if (q in 0 until end) end = q
+        if (h in 0 until end) end = h
+        val head = url.substring(0, end)
+        val slash = head.lastIndexOf('/')
+        return if (end == MAX_URL_LENGTH && slash > head.indexOf("//") + 1) head.substring(0, slash + 1) else head
+    }
+
+    /**
+     * Reklam razılığı olmadan göndərilən ünvan: [cleanUrl] `ads = false` ilə. Veb tracker-dəki kimi ünvan yenidən
+     * təmizlənir, ona görə klik ID-ləri ([CLICK_IDS]) iç-içə ünvanlardan (iki səviyyə), hash marşrutunun query-sindən
+     * və matris parametrlərindən də çıxır. Artıq təmizlənmiş ünvanın qalan hissələri dəyişmir.
+     */
+    fun stripClickIds(url: String, extraStrip: Set<String> = emptySet()): String = cleanUrl(url, extraStrip, ads = false)
+
+    /**
+     * Kampaniya dəyəri (tracker: `scrubValue` + `cut`): JWT `[redacted]` olur, dəyər ünvandırsa o da təmizlənir,
+     * qalan halda e-poçta bənzər hissələr gizlədilir; nəticə [MAX_CAMPAIGN_VALUE] simvola kəsilir. `utm` (ad [CAMPAIGN]
+     * siyahısındadır) olduqda `+` ilə başlayan telefon və kart nömrəsi də gizlədilir; klik ID-lərində yox (yalnız rəqəmdən
+     * ibarət klik ID-si kart nömrəsinə bənzəyə bilər).
+     */
+    fun campaignValue(value: String, extraStrip: Set<String> = emptySet(), ads: Boolean = true, utm: Boolean = false): String {
+        val scrubbed = when {
+            isJwt(value) -> REDACTED
+            isUrlValue(value) -> scrubUrl(value, extraStrip, ads, 1)
+            utm -> redactDigits(redactPhones(redactEmails(value)), 0)
+            else -> redactEmails(value)
+        }
+        return cut(scrubbed, MAX_CAMPAIGN_VALUE)
+    }
+
+    /**
+     * Keçiddəki UTM və (`withClickIds` olduqda) klik ID parametrləri (PROTOCOL.md 5.4 `campaign`). Qaydalar veb
+     * tracker ilə eynidir (spec/vectors/campaign.json): query yalnız `&` ilə bölünür, ad və dəyər açılır (dəyərdə `+`
+     * boşluqdur; açılmayan cüt ötürülür), adlar dəqiq (kiçik hərflə) tutuşdurulur, təkrarlanan adın sonuncusu götürülür,
+     * boş dəyər və təmizləmədən sonra boş qalan dəyər atılır. Dəyərlər [campaignValue] ilə təmizlənir. Veb tracker-dəki
+     * kimi ünvanın uzunluğuna hədd yoxdur (dərin keçidin uzunluğunu çağıran yoxlayır, bax [MAX_URL_LENGTH]).
+     */
+    fun campaignOf(url: String, withClickIds: Boolean = true, extraStrip: Set<String> = emptySet()): JSONObject? {
         val q = url.substringBefore('#').substringAfter('?', "")
         if (q.isEmpty()) return null
+        val found = HashMap<String, String>()
+        var i = 0
+        while (i <= q.length) {
+            var end = i
+            while (end < q.length && q[end] != '&') end++
+            val part = q.substring(i, end)
+            i = end + 1
+            if (part.isEmpty()) continue
+            val eq = part.indexOf('=')
+            val name = decodeURIComponent(if (eq < 0) part else part.substring(0, eq)) ?: continue
+            val value = decodeURIComponent(if (eq < 0) "" else part.substring(eq + 1).replace('+', ' ')) ?: continue
+            // Snapchat klik ID-sini `ScCid` şəklində yazır; qalan adlar dəqiq (kiçik hərflə) tutuşdurulur.
+            found[if (name == "ScCid") "sccid" else name] = value
+        }
         val out = JSONObject()
-        for ((name, value) in splitQuery(q)) {
-            if (value.isNotEmpty() && (CAMPAIGN.contains(name) || CLICK_IDS.contains(name))) out.put(name, value.take(512))
+        for (name in if (withClickIds) CAMPAIGN + CLICK_IDS else CAMPAIGN) {
+            val value = found[name]
+            if (value.isNullOrEmpty()) continue
+            val cleaned = campaignValue(value, extraStrip, withClickIds, CAMPAIGN.contains(name))
+            if (cleaned.isNotEmpty()) out.put(name, cleaned)
         }
         return if (out.length() == 0) null else out
     }

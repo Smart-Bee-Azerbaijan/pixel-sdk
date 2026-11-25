@@ -1,0 +1,1880 @@
+{
+  "description": "URL təmizləməsi (PROTOCOL.md 6). Giriş: url, ads (reklam razılığı; yoxdursa true), strip (konfiqin strip_params siyahısı; yoxdursa boş). expected: göndərilən ünvan. Hər SDK eyni nəticəni almalıdır; istinad veb tracker-dir (tracker/test/vectors.test.js).",
+  "cases": [
+    {
+      "name": "param substring list: every entry as the whole name",
+      "url": "https://shop.az/p?keep=1&token=1&passw=1&passphrase=1&passport=1&passcode=1&pwd=1&secret=1&session=1&sessid=1&jwt=1&msisdn=1&iban=1&signature=1&mail=1&apikey=1&credential=1&csrf=1&xsrf=1&oauth=1&authoris=1&authoriz=1&authent=1&bearer=1&cvv=1&cvc=1&z=2",
+      "expected": "https://shop.az/p?keep=1&z=2"
+    },
+    {
+      "name": "param substring list: every entry inside a longer word",
+      "url": "https://shop.az/p?keep=1&xtokeny=1&xpasswy=1&xpassphrasey=1&xpassporty=1&xpasscodey=1&xpwdy=1&xsecrety=1&xsessiony=1&xsessidy=1&xjwty=1&xmsisdny=1&xibany=1&xsignaturey=1&xmaily=1&xapikeyy=1&xcredentialy=1&xcsrfy=1&xxsrfy=1&xoauthy=1&xauthorisy=1&xauthorizy=1&xauthenty=1&xbearery=1&xcvvy=1&xcvcy=1&z=2",
+      "expected": "https://shop.az/p?keep=1&z=2"
+    },
+    {
+      "name": "param substring list: common real names",
+      "url": "https://shop.az/p?access_token=a&refreshToken=b&id_token=c&password=d&user[password]=e&passwd=f&client_secret=g&PHPSESSID=h&session_id=i&sessionid=j&email=k&e-mail=l&mailto=m&api_key=n&apikey=o&x-csrf-token=p&oauth_verifier=r&authorization=s&Authorisation=t&authenticity=u&cvv2=v&keep=1",
+      "expected": "https://shop.az/p?keep=1"
+    },
+    {
+      "name": "param phone prefix: phone, telephone, cellphone and derived words",
+      "url": "https://shop.az/p?phone=1&telephone=2&cellphone=3&phoneNumber=4&phone_no=5&user-phone=6&phones=7&phonetic=8&keep=1",
+      "expected": "https://shop.az/p?keep=1"
+    },
+    {
+      "name": "param phone lookalikes are kept",
+      "url": "https://shop.az/p?iphone=1&smartphone=2&headphones=3&microphone=4&xphone=5",
+      "expected": "https://shop.az/p?iphone=1&smartphone=2&headphones=3&microphone=4&xphone=5"
+    },
+    {
+      "name": "param word list: every entry as the whole name",
+      "url": "https://shop.az/p?keep=1&pass=1&sig=1&sign=1&auth=1&sid=1&otp=1&code=1&key=1&tel=1&mobile=1&card=1&pan=1&fin=1&pin=1&ssn=1&hash=1&nonce=1&reset=1&z=2",
+      "expected": "https://shop.az/p?keep=1&mobile=1&z=2"
+    },
+    {
+      "name": "param word list: every entry as one word of a snake_case name",
+      "url": "https://shop.az/p?keep=1&user_pass=1&user_sig=1&user_sign=1&user_auth=1&user_sid=1&user_otp=1&user_code=1&user_key=1&user_tel=1&user_mobile=1&user_card=1&user_pan=1&user_fin=1&user_pin=1&user_ssn=1&user_hash=1&user_nonce=1&user_reset=1&z=2",
+      "expected": "https://shop.az/p?keep=1&user_mobile=1&z=2"
+    },
+    {
+      "name": "param word list: every entry as one word of a camelCase name",
+      "url": "https://shop.az/p?keep=1&passValue=1&sigValue=1&signValue=1&authValue=1&sidValue=1&otpValue=1&codeValue=1&keyValue=1&telValue=1&mobileValue=1&cardValue=1&panValue=1&finValue=1&pinValue=1&ssnValue=1&hashValue=1&nonceValue=1&resetValue=1&z=2",
+      "expected": "https://shop.az/p?keep=1&mobileValue=1&z=2"
+    },
+    {
+      "name": "param word list: every entry with a letter prefix is kept",
+      "url": "https://shop.az/p?xpass=1&xsig=1&xsign=1&xauth=1&xsid=1&xotp=1&xcode=1&xkey=1&xtel=1&xmobile=1&xcard=1&xpan=1&xfin=1&xpin=1&xssn=1&xhash=1&xnonce=1&xreset=1",
+      "expected": "https://shop.az/p?xpass=1&xsig=1&xsign=1&xauth=1&xsid=1&xotp=1&xcode=1&xkey=1&xtel=1&xmobile=1&xcard=1&xpan=1&xfin=1&xpin=1&xssn=1&xhash=1&xnonce=1&xreset=1"
+    },
+    {
+      "name": "param word list: every entry with a letter suffix is kept",
+      "url": "https://shop.az/p?passx=1&sigx=1&signx=1&authx=1&sidx=1&otpx=1&codex=1&keyx=1&telx=1&mobilex=1&cardx=1&panx=1&finx=1&pinx=1&ssnx=1&hashx=1&noncex=1&resetx=1",
+      "expected": "https://shop.az/p?passx=1&sigx=1&signx=1&authx=1&sidx=1&otpx=1&codex=1&keyx=1&telx=1&mobilex=1&cardx=1&panx=1&finx=1&pinx=1&ssnx=1&hashx=1&noncex=1&resetx=1"
+    },
+    {
+      "name": "param word list: every entry followed by a digit is a word",
+      "url": "https://shop.az/p?keep=1&pass2=1&sig2=1&sign2=1&auth2=1&sid2=1&otp2=1&code2=1&key2=1&tel2=1&mobile2=1&card2=1&pan2=1&fin2=1&pin2=1&ssn2=1&hash2=1&nonce2=1&reset2=1&z=2",
+      "expected": "https://shop.az/p?keep=1&mobile2=1&z=2"
+    },
+    {
+      "name": "param word lookalikes are kept",
+      "url": "https://shop.az/p?author=ali&keyword=k&passengers=2&design=x&hotel=h&company=c&postcode=AZ1000&expand=1&final=1&inside=1&telegram=t&signal=s&cardinal=c&automobile=a&pinned=1&hashtag=h&preset=p&panel=p&decode=d&encoded=e&monkey=m&keys=k",
+      "expected": "https://shop.az/p?author=ali&keyword=k&passengers=2&design=x&hotel=h&company=c&postcode=AZ1000&expand=1&final=1&inside=1&telegram=t&signal=s&cardinal=c&automobile=a&pinned=1&hashtag=h&preset=p&panel=p&decode=d&encoded=e&monkey=m&keys=k"
+    },
+    {
+      "name": "safe code names: every exemption with underscore",
+      "url": "https://shop.az/p?promo_code=1&coupon_code=1&discount_code=1&country_code=1&lang_code=1&language_code=1&currency_code=1&postal_code=1&post_code=1&zip_code=1&region_code=1&area_code=1&product_code=1&item_code=1&color_code=1&colour_code=1&error_code=1&status_code=1&sku_code=1&bar_code=1&qr_code=1",
+      "expected": "https://shop.az/p?promo_code=1&coupon_code=1&discount_code=1&country_code=1&lang_code=1&language_code=1&currency_code=1&postal_code=1&post_code=1&zip_code=1&region_code=1&area_code=1&product_code=1&item_code=1&color_code=1&colour_code=1&error_code=1&status_code=1&sku_code=1&bar_code=1&qr_code=1"
+    },
+    {
+      "name": "safe code names: camelCase, dash, brackets, upper case",
+      "url": "https://shop.az/p?promoCode=A&coupon-code=B&filter[country][code]=AZ&ZIP_CODE=1000&QRCode=x&itemCode2=y",
+      "expected": "https://shop.az/p?promoCode=A&coupon-code=B&filter[country][code]=AZ&ZIP_CODE=1000&QRCode=x&itemCode2=y"
+    },
+    {
+      "name": "code names without exemption are removed",
+      "url": "https://shop.az/p?code=1&sms_code=2&verification_code=3&authCode=4&invite-code=5&codeword=6&promo_codes=7&keep=1",
+      "expected": "https://shop.az/p?invite-code=5&codeword=6&promo_codes=7&keep=1"
+    },
+    {
+      "name": "safe code: exemption applies only directly before code",
+      "url": "https://shop.az/p?promo_x_code=1&code_promo=2&promo_code_code=3&promo_code_country_code=4&promo_code_x_country_code=5&keep=1",
+      "expected": "https://shop.az/p?promo_code_x_country_code=5&keep=1"
+    },
+    {
+      "name": "safe code: other sensitive word in the same name still removes",
+      "url": "https://shop.az/p?promo_code_token=1&country_code_key=2&user_country_code=3",
+      "expected": "https://shop.az/p?user_country_code=3"
+    },
+    {
+      "name": "names: camelCase and acronym boundaries",
+      "url": "https://shop.az/p?SMSCode=1&XMLHttpKey=2&APIKey=3&userPIN=4&myOTPValue=5&HASHValue=6&ABCode=7&keep=1",
+      "expected": "https://shop.az/p?keep=1"
+    },
+    {
+      "name": "names: upper case and mixed case",
+      "url": "https://shop.az/p?TOKEN=1&Token=2&PASS=3&Key=4&KEY=5&Keep=6&CODE=7",
+      "expected": "https://shop.az/p?Keep=6"
+    },
+    {
+      "name": "names: digits split words",
+      "url": "https://shop.az/p?key2=a&2key=b&otp1=c&auth2fa=d&k3y=e&pin4digit=f&x1pin=g&md5=h&sha256=i",
+      "expected": "https://shop.az/p?k3y=e&md5=h&sha256=i"
+    },
+    {
+      "name": "names: separators underscore dash dot brackets colon",
+      "url": "https://shop.az/p?user.key=1&user:key=2&user-key=3&user[key]=4&user[][key]=5&a.b=6&__pin__=7&user%20pass=8&keep=1",
+      "expected": "https://shop.az/p?a.b=6&keep=1"
+    },
+    {
+      "name": "names: percent-encoded",
+      "url": "https://shop.az/p?%74oken=ENC&user%5Bpass%5D=PW&token%5B%5D=ARR&%6Bey=k&a%5Fkey=l&filter%5Bcolor%5D=red",
+      "expected": "https://shop.az/p?filter%5Bcolor%5D=red"
+    },
+    {
+      "name": "names: double-encoded is decoded twice, triple-encoded is kept",
+      "url": "https://shop.az/p?%2574oken=2X&%252574oken=3X&%256Bey=k&keep=1",
+      "expected": "https://shop.az/p?%252574oken=3X&keep=1"
+    },
+    {
+      "name": "names: invalid percent sequences leave the name undecoded",
+      "url": "https://shop.az/p?%zztoken=1&%FFkey=2&%E0%A4%A=3&key%=4&%key=5&to%6Ben=6&%C0%AFkey=7&%ED%A0%80pin=8",
+      "expected": "https://shop.az/p?%FFkey=2&%E0%A4%A=3&%C0%AFkey=7"
+    },
+    {
+      "name": "names: plus is not a space in names but splits words",
+      "url": "https://shop.az/p?user+key=1&a+b=2",
+      "expected": "https://shop.az/p?a+b=2"
+    },
+    {
+      "name": "names: Azerbaijani letters are folded, other non-ASCII letters split words",
+      "url": "https://shop.az/p?\u015fifr\u0259=1&a\u00e7ar_key=2&\u043a\u043b\u044e\u0447=3&p\u0131n=4&keep=1",
+      "expected": "https://shop.az/p?\u043a\u043b\u044e\u0447=3&keep=1"
+    },
+    {
+      "name": "names: percent-encoded non-ASCII",
+      "url": "https://shop.az/p?%C5%9Fifr%C9%99=1&%C3%A7ar%5Fkey=2&keep=1",
+      "expected": "https://shop.az/p?keep=1"
+    },
+    {
+      "name": "names: Kelvin sign lowercases to k, dotted capital I to i plus mark",
+      "url": "https://shop.az/p?\u212aey=1&P\u0130N=2&\u212a=3&keep=1",
+      "expected": "https://shop.az/p?\u212a=3&keep=1"
+    },
+    {
+      "name": "names: only the first 128 characters are examined",
+      "url": "https://shop.az/p?xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_token=1&xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_token=2&yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyKey=3&keep=1",
+      "expected": "https://shop.az/p?xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_token=1&yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyKey=3&keep=1"
+    },
+    {
+      "name": "names: empty name, missing value, empty parts",
+      "url": "https://shop.az/p?=v&token&&a=1&&pin=&b&=&key",
+      "expected": "https://shop.az/p?=v&a=1&b&="
+    },
+    {
+      "name": "query: only sensitive params leaves no question mark",
+      "url": "https://shop.az/p?token=a&key=b",
+      "expected": "https://shop.az/p"
+    },
+    {
+      "name": "query: empty query is dropped",
+      "url": "https://shop.az/p?",
+      "expected": "https://shop.az/p"
+    },
+    {
+      "name": "query: semicolon separators are preserved",
+      "url": "https://shop.az/p?a=1;token=SEMI;b=2&c=3;key=4;d=5",
+      "expected": "https://shop.az/p?a=1;b=2&c=3;d=5"
+    },
+    {
+      "name": "query: leading separators and first part removed",
+      "url": "https://shop.az/p?;token=1;a=1&b=2",
+      "expected": "https://shop.az/p?a=1&b=2"
+    },
+    {
+      "name": "query: html entity ampersand",
+      "url": "https://shop.az/p?a=1&amp;token=ENTITY&amp;b=2",
+      "expected": "https://shop.az/p?a=1&amp&amp;b=2"
+    },
+    {
+      "name": "query: second question mark belongs to the value",
+      "url": "https://shop.az/p?a=1?token=x&b=2",
+      "expected": "https://shop.az/p?a=&b=2"
+    },
+    {
+      "name": "value: JWT is redacted, name kept",
+      "url": "https://shop.az/p?state=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz&a=1",
+      "expected": "https://shop.az/p?state=[redacted]&a=1"
+    },
+    {
+      "name": "value: JWT with two parts and with empty third part",
+      "url": "https://shop.az/p?s=eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTYifQ&t=eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTYifQ.&a=1",
+      "expected": "https://shop.az/p?s=[redacted]&t=[redacted]&a=1"
+    },
+    {
+      "name": "value: JWT lookalikes are kept",
+      "url": "https://shop.az/p?a=eyJhbGci.eyJzdWIi.x&b=eyJ&c=xeyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.sig&d=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.a.b&e=eyJhbGciOiJIUzI1NiJ9",
+      "expected": "https://shop.az/p?a=eyJhbGci.eyJzdWIi.x&b=eyJ&c=xeyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.sig&d=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.a.b&e=eyJhbGciOiJIUzI1NiJ9"
+    },
+    {
+      "name": "value: JWT under utm and click id names",
+      "url": "https://shop.az/p?utm_content=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz&gclid=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz",
+      "expected": "https://shop.az/p?utm_content=[redacted]&gclid=[redacted]"
+    },
+    {
+      "name": "value: secret-looking values under harmless names are redacted",
+      "url": "https://shop.az/p?order=1234567890123&ref=d41d8cd98f00b204e9800998ecf8427e&h=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855&n=4111111111111111&b=dGhpc0lzQVNlY3JldFRva2VuMTIzNDU2Nzg5MA&ph=%2B994501234567",
+      "expected": "https://shop.az/p?order=1234567890123&ref=[redacted]&h=[redacted]&n=[redacted]&b=[redacted]&ph=[redacted]"
+    },
+    {
+      "name": "value: e-mail in value is redacted",
+      "url": "https://shop.az/p?u=user@example.com&v=user%40example.com&w=@handle&x=a@b&y=a%40b.c&z=%40x.az",
+      "expected": "https://shop.az/p?u=[redacted]&v=[redacted]&w=@handle&x=a@b&y=a%40b.c&z=%40x.az"
+    },
+    {
+      "name": "nested: absolute URL value is cleaned and re-encoded",
+      "url": "https://shop.az/login?next=https%3A%2F%2Fshop.az%2Fcb%3Ftoken%3DNESTED%26page%3D2%26email%3Da%2540b.az&x=1",
+      "expected": "https://shop.az/login?next=https%3A%2F%2Fshop.az%2Fcb%3Fpage%3D2&x=1"
+    },
+    {
+      "name": "nested: unchanged URL value keeps its original encoding",
+      "url": "https://shop.az/login?next=https%3a%2f%2fshop.az%2Fcb%3Fpage%3D2&x=1",
+      "expected": "https://shop.az/login?next=https%3a%2f%2fshop.az%2Fcb%3Fpage%3D2&x=1"
+    },
+    {
+      "name": "nested: unencoded URL value",
+      "url": "https://shop.az/login?next=https://shop.az/cb?token=N&page=2",
+      "expected": "https://shop.az/login?next=https%3A%2F%2Fshop.az%2Fcb&page=2"
+    },
+    {
+      "name": "nested: relative path value",
+      "url": "https://shop.az/login?next=%2Faccount%2Freset%2F9f8a7b6c5d4e%3Fkey%3D1%26tab%3D2&r=%2Fcart",
+      "expected": "https://shop.az/login?next=%2Faccount%2Freset%2F%5Bredacted%5D%3Ftab%3D2&r=%2Fcart"
+    },
+    {
+      "name": "nested: protocol-relative value",
+      "url": "https://shop.az/login?next=%2F%2Fevil.example%2Fcb%3Fsession%3D1%26a%3D2",
+      "expected": "https://shop.az/login?next=%2F%2Fevil.example%2Fcb%3Fa%3D2"
+    },
+    {
+      "name": "nested: query-string value",
+      "url": "https://shop.az/login?state=a%3D1%26token%3Dx%26b%3D2&filter=color%3Dred&eq==x=1",
+      "expected": "https://shop.az/login?state=a%3D1%26b%3D2&filter=color%3Dred&eq==x=1"
+    },
+    {
+      "name": "nested: value that only starts with equals is kept",
+      "url": "https://shop.az/p?a=%3Dtoken%3D1234&b==key=12345",
+      "expected": "https://shop.az/p?a=%3Dtoken%3D1234&b==key=12345"
+    },
+    {
+      "name": "nested: two levels are cleaned",
+      "url": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fb%3Fr%3Dhttps%253A%252F%252Fc.az%252Fc%253Ftoken%253DDEEP%2526ok%253D1%26k%3D1",
+      "expected": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fb%3Fr%3Dhttps%253A%252F%252Fc.az%252Fc%253Fok%253D1%26k%3D1"
+    },
+    {
+      "name": "nested: third level with parameters is dropped whole",
+      "url": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fb%3Fr%3Dhttps%253A%252F%252Fc.az%252Fc%253Fr%253Dhttps%25253A%25252F%25252Fd.az%25252Fd%25253Fok%25253D1%2526z%253D1&keep=1",
+      "expected": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fb%3Fr%3Dhttps%253A%252F%252Fc.az%252Fc%253Fz%253D1&keep=1"
+    },
+    {
+      "name": "nested: third level without equals is kept",
+      "url": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fb%3Fr%3Dhttps%253A%252F%252Fc.az%252Fc%253Fr%253Dhttps%25253A%25252F%25252Fd.az%25252Fpath",
+      "expected": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fb%3Fr%3Dhttps%253A%252F%252Fc.az%252Fc%253Fr%253Dhttps%25253A%25252F%25252Fd.az%25252Fpath"
+    },
+    {
+      "name": "nested: user info and fragment inside nested URL",
+      "url": "https://shop.az/a?r=https%3A%2F%2Fuser%3Apw%40b.az%2Fx%23frag&h=https%3A%2F%2Fb.az%2F%23%2Freset%2F9f8a7b6c5d4e",
+      "expected": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fx&h=https%3A%2F%2Fb.az%2F%23%2Freset%2F%5Bredacted%5D"
+    },
+    {
+      "name": "nested: user info with several at signs",
+      "url": "https://shop.az/a?r=https%3A%2F%2Fuser%3Ap%40ss%40b.az%2Fx%3Fa%3D1",
+      "expected": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fx%3Fa%3D1"
+    },
+    {
+      "name": "nested: JWT inside nested URL",
+      "url": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fx%3Fstate%3DeyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz",
+      "expected": "https://shop.az/a?r=https%3A%2F%2Fb.az%2Fx%3Fstate%3D%5Bredacted%5D"
+    },
+    {
+      "name": "nested: short values are not examined",
+      "url": "https://shop.az/a?r=/a?k=1&s=a=b&t=//x",
+      "expected": "https://shop.az/a?r=/a?k=1&s=a=b&t=//x"
+    },
+    {
+      "name": "nested: app scheme value",
+      "url": "myapp://open?link=myapp%3A%2F%2Freset%2F123456%3Fotp%3D1%26x%3D2",
+      "expected": "myapp://open?link=myapp%3A%2F%2Freset%2F%5Bredacted%5D%3Fx%3D2"
+    },
+    {
+      "name": "click ids: all ten kept with ads consent",
+      "url": "https://shop.az/list?utm_source=fb&utm_id=7&fbclid=C-fbclid&gclid=C-gclid&gbraid=C-gbraid&wbraid=C-wbraid&ttclid=C-ttclid&msclkid=C-msclkid&dclid=C-dclid&twclid=C-twclid&yclid=C-yclid&li_fat_id=C-li_fat_id&page=2",
+      "expected": "https://shop.az/list?utm_source=fb&utm_id=7&fbclid=C-fbclid&gclid=C-gclid&gbraid=C-gbraid&wbraid=C-wbraid&ttclid=C-ttclid&msclkid=C-msclkid&dclid=C-dclid&twclid=C-twclid&yclid=C-yclid&li_fat_id=C-li_fat_id&page=2"
+    },
+    {
+      "name": "click ids: all ten removed without ads consent",
+      "url": "https://shop.az/list?utm_source=fb&utm_id=7&fbclid=C-fbclid&gclid=C-gclid&gbraid=C-gbraid&wbraid=C-wbraid&ttclid=C-ttclid&msclkid=C-msclkid&dclid=C-dclid&twclid=C-twclid&yclid=C-yclid&li_fat_id=C-li_fat_id&page=2",
+      "ads": false,
+      "expected": "https://shop.az/list?utm_source=fb&utm_id=7&page=2"
+    },
+    {
+      "name": "click ids: name matching ignores case and percent-encoding",
+      "url": "https://shop.az/?GCLID=1&Fbclid=2&%67clid=3&li%5Ffat%5Fid=4&gclid2=5&xgclid=6&a=1",
+      "ads": false,
+      "expected": "https://shop.az/?gclid2=5&xgclid=6&a=1"
+    },
+    {
+      "name": "click ids: nested URL, with ads consent",
+      "url": "https://shop.az/?r=https%3A%2F%2Fb.az%2F%3Fgclid%3DN1%26a%3D1%26r%3Dhttps%253A%252F%252Fc.az%252F%253Ffbclid%253DN2%2526b%253D2&yclid=Y",
+      "expected": "https://shop.az/?r=https%3A%2F%2Fb.az%2F%3Fgclid%3DN1%26a%3D1%26r%3Dhttps%253A%252F%252Fc.az%252F%253Ffbclid%253DN2%2526b%253D2&yclid=Y"
+    },
+    {
+      "name": "click ids: nested URL, without ads consent",
+      "url": "https://shop.az/?r=https%3A%2F%2Fb.az%2F%3Fgclid%3DN1%26a%3D1%26r%3Dhttps%253A%252F%252Fc.az%252F%253Ffbclid%253DN2%2526b%253D2&yclid=Y",
+      "ads": false,
+      "expected": "https://shop.az/?r=https%3A%2F%2Fb.az%2F%3Fa%3D1%26r%3Dhttps%253A%252F%252Fc.az%252F%253Fb%253D2"
+    },
+    {
+      "name": "click ids: hash route query and matrix parameter, without ads consent",
+      "url": "https://shop.az/p;gclid=M1;v=2?a=1#/list?ttclid=T&tab=1",
+      "ads": false,
+      "expected": "https://shop.az/p;v=2?a=1#/list?tab=1"
+    },
+    {
+      "name": "click ids: hash route query and matrix parameter, with ads consent",
+      "url": "https://shop.az/p;gclid=M1;v=2?a=1#/list?ttclid=T&tab=1",
+      "expected": "https://shop.az/p;gclid=M1;v=2?a=1#/list?ttclid=T&tab=1"
+    },
+    {
+      "name": "strip_params: exact names, case-insensitive, utm and click ids included",
+      "url": "https://shop.az/list?ref=r1&utm_term=x&Sort=price&page=2&gclid=G&REF2=1",
+      "strip": [
+        "ref",
+        "utm_term",
+        "sort",
+        "gclid"
+      ],
+      "expected": "https://shop.az/list?page=2&REF2=1"
+    },
+    {
+      "name": "strip_params: upper-case config entries and encoded names",
+      "url": "https://shop.az/list?%72ef=r1&ref[]=2&page=2",
+      "strip": [
+        "REF",
+        "Page"
+      ],
+      "expected": "https://shop.az/list?ref[]=2"
+    },
+    {
+      "name": "utm parameters are kept even with sensitive words",
+      "url": "https://shop.az/?utm_source=fb&utm_token=1&utm_key=2&UTM_Pass=3&utmkey=4",
+      "expected": "https://shop.az/?utm_source=fb&utmkey=4"
+    },
+    {
+      "name": "path: JWT segment",
+      "url": "https://shop.az/confirm/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz/done",
+      "expected": "https://shop.az/confirm/[redacted]/done"
+    },
+    {
+      "name": "path: phone with plus",
+      "url": "https://shop.az/call/+994501234567/x/+99450/y/%2B994%2050%20123%2045%2067/z/+1(555)123-4567",
+      "expected": "https://shop.az/call/[redacted]/x/+99450/y/[redacted]/z/[redacted]"
+    },
+    {
+      "name": "path: plus phone digit count limits (8, 9, 15, 16)",
+      "url": "https://shop.az/a/+12345678/b/+123456789/c/+123456789012345/d/+1234567890123456",
+      "expected": "https://shop.az/a/+12345678/b/[redacted]/c/[redacted]/d/+1234567890123456"
+    },
+    {
+      "name": "path: hex 32 and longer",
+      "url": "https://shop.az/f/d41d8cd98f00b204e9800998ecf8427e/g/da39a3ee5e6b4b0d3255bfef95601890afd80709/h/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855/i/D41D8CD98F00B204E9800998ECF8427E",
+      "expected": "https://shop.az/f/[redacted]/g/[redacted]/h/[redacted]/i/[redacted]"
+    },
+    {
+      "name": "path: UUID with and without dashes is kept",
+      "url": "https://shop.az/o/3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b/p/3f2b8c1e6a4d4e2f9b7a1c5d8e9f0a2b/q/3F2B8C1E6A4D4E2F9B7A1C5D8E9F0A2B",
+      "expected": "https://shop.az/o/3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b/p/3f2b8c1e6a4d4e2f9b7a1c5d8e9f0a2b/q/3F2B8C1E6A4D4E2F9B7A1C5D8E9F0A2B"
+    },
+    {
+      "name": "path: 32 hex that is not UUID-shaped",
+      "url": "https://shop.az/o/3f2b8c1e6a4d0e2f9b7a1c5d8e9f0a2b/p/3f2b8c1e6a4d4e2f7b7a1c5d8e9f0a2b/q/3f2b8c1e6a4d4e2f9b7a1c5d8e9f0a2",
+      "expected": "https://shop.az/o/[redacted]/p/[redacted]/q/3f2b8c1e6a4d4e2f9b7a1c5d8e9f0a2"
+    },
+    {
+      "name": "path: digits (short, Luhn 16, non-Luhn 16, 19, 20)",
+      "url": "https://shop.az/n/12345/a/1234567890/b/4111111111111111/c/4111111111111112/d/1234567890123456789/e/12345678901234567890",
+      "expected": "https://shop.az/n/12345/a/1234567890/b/[redacted]/c/4111111111111112/d/1234567890123456789/e/[redacted]"
+    },
+    {
+      "name": "path: Luhn 13 to 19 digits",
+      "url": "https://shop.az/a/4222222222222/b/378282246310005/c/6011111111111117/d/40000000000000006/e/4000000000000000006",
+      "expected": "https://shop.az/a/4222222222222/b/[redacted]/c/[redacted]/d/[redacted]/e/[redacted]"
+    },
+    {
+      "name": "path: base64url 32+ with mixed classes",
+      "url": "https://shop.az/t/dGhpc0lzQVNlY3JldFRva2VuMTIzNDU2Nzg5MA/u/dGhpc0lzQVNlY3JldFRva2VuMTIzNDU2Nzg5MA==/v/dghpc0lzqvnly3jldfrva2vumtizndu2nzg5ma/w/dGhpc0lzQVNlY3JldFRva2VuMTIzNDU",
+      "expected": "https://shop.az/t/[redacted]/u/[redacted]/v/[redacted]/w/[redacted]"
+    },
+    {
+      "name": "path: long slugs and names are kept",
+      "url": "https://shop.az/blog/Summer-Sale-2026-Best-Offers-For-You-A1/Product_Name_With_Many_Words_And_1_Number/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
+      "expected": "https://shop.az/blog/Summer-Sale-2026-Best-Offers-For-You-A1/Product_Name_With_Many_Words_And_1_Number/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"
+    },
+    {
+      "name": "path: base64url separator ratio",
+      "url": "https://shop.az/a/Abcdefg1-Abcdefg1-Abcdefg1-Abcdefg1/b/Abcdefg1-Abcdefg1Abcdefg1Abcdefg1x/c/Abcdefg1Abcdefg1Abcdefg1Abcdefg1x.y",
+      "expected": "https://shop.az/a/[redacted]/b/[redacted]/c/[redacted]"
+    },
+    {
+      "name": "path hint words 1-9: next segment redacted",
+      "url": "https://shop.az/reset/9f8a7b6c5d4e/token/9f8a7b6c5d4e/verify/9f8a7b6c5d4e/verification/9f8a7b6c5d4e/confirm/9f8a7b6c5d4e/confirmation/9f8a7b6c5d4e/activate/9f8a7b6c5d4e/activation/9f8a7b6c5d4e/invite/9f8a7b6c5d4e",
+      "expected": "https://shop.az/reset/[redacted]/token/[redacted]/verify/[redacted]/verification/[redacted]/confirm/[redacted]/confirmation/[redacted]/activate/[redacted]/activation/[redacted]/invite/[redacted]"
+    },
+    {
+      "name": "path hint words 10-18: next segment redacted",
+      "url": "https://shop.az/invitation/9f8a7b6c5d4e/magic/9f8a7b6c5d4e/unsubscribe/9f8a7b6c5d4e/password/9f8a7b6c5d4e/passwd/9f8a7b6c5d4e/pwd/9f8a7b6c5d4e/secret/9f8a7b6c5d4e/session/9f8a7b6c5d4e/auth/9f8a7b6c5d4e",
+      "expected": "https://shop.az/invitation/[redacted]/magic/[redacted]/unsubscribe/[redacted]/password/[redacted]/passwd/[redacted]/pwd/[redacted]/secret/[redacted]/session/[redacted]/auth/[redacted]"
+    },
+    {
+      "name": "path hint words 19-27: next segment redacted",
+      "url": "https://shop.az/otp/9f8a7b6c5d4e/signature/9f8a7b6c5d4e/sig/9f8a7b6c5d4e/phone/9f8a7b6c5d4e/tel/9f8a7b6c5d4e/msisdn/9f8a7b6c5d4e/email/9f8a7b6c5d4e/mail/9f8a7b6c5d4e/iban/9f8a7b6c5d4e",
+      "expected": "https://shop.az/otp/[redacted]/signature/[redacted]/sig/9f8a7b6c5d4e/phone/9f8a7b6c5d4e/tel/9f8a7b6c5d4e/msisdn/[redacted]/email/9f8a7b6c5d4e/mail/9f8a7b6c5d4e/iban/[redacted]"
+    },
+    {
+      "name": "path hint words 28-34: next segment redacted",
+      "url": "https://shop.az/fin/9f8a7b6c5d4e/recover/9f8a7b6c5d4e/recovery/9f8a7b6c5d4e/restore/9f8a7b6c5d4e/login/9f8a7b6c5d4e/signin/9f8a7b6c5d4e/sso/9f8a7b6c5d4e",
+      "expected": "https://shop.az/fin/9f8a7b6c5d4e/recover/[redacted]/recovery/[redacted]/restore/[redacted]/login/[redacted]/signin/[redacted]/sso/[redacted]"
+    },
+    {
+      "name": "path hint: every hint word followed by a readable slug is kept",
+      "url": "https://shop.az/reset/summer-sale-2026/token/summer-sale-2026/verify/summer-sale-2026/verification/summer-sale-2026/confirm/summer-sale-2026/confirmation/summer-sale-2026/activate/summer-sale-2026/activation/summer-sale-2026/invite/summer-sale-2026/invitation/summer-sale-2026/magic/summer-sale-2026/unsubscribe/summer-sale-2026/password/summer-sale-2026/passwd/summer-sale-2026/pwd/summer-sale-2026/secret/summer-sale-2026/session/summer-sale-2026/auth/summer-sale-2026/otp/summer-sale-2026/signature/summer-sale-2026/sig/summer-sale-2026/phone/summer-sale-2026/tel/summer-sale-2026/msisdn/summer-sale-2026/email/summer-sale-2026/mail/summer-sale-2026/iban/summer-sale-2026/fin/summer-sale-2026/recover/summer-sale-2026/recovery/summer-sale-2026/restore/summer-sale-2026/login/summer-sale-2026/signin/summer-sale-2026/sso/summer-sale-2026",
+      "expected": "https://shop.az/reset/summer-sale-2026/token/summer-sale-2026/verify/summer-sale-2026/verification/summer-sale-2026/confirm/summer-sale-2026/confirmation/summer-sale-2026/activate/summer-sale-2026/activation/summer-sale-2026/invite/summer-sale-2026/invitation/summer-sale-2026/magic/summer-sale-2026/unsubscribe/summer-sale-2026/password/summer-sale-2026/passwd/summer-sale-2026/pwd/summer-sale-2026/secret/summer-sale-2026/session/summer-sale-2026/auth/summer-sale-2026/otp/summer-sale-2026/signature/summer-sale-2026/sig/summer-sale-2026/phone/summer-sale-2026/tel/summer-sale-2026/msisdn/summer-sale-2026/email/summer-sale-2026/mail/summer-sale-2026/iban/summer-sale-2026/fin/summer-sale-2026/recover/summer-sale-2026/recovery/summer-sale-2026/restore/summer-sale-2026/login/summer-sale-2026/signin/summer-sale-2026/sso/summer-sale-2026"
+    },
+    {
+      "name": "path hint: compound, camelCase and upper-case hint segments",
+      "url": "https://shop.az/reset-password/a1b2c3d4/resetPassword/a1b2c3d4/VERIFY/a1b2c3d4/magic_link/a1b2c3d4/email-confirmation/a1b2c3d4/x",
+      "expected": "https://shop.az/reset-password/[redacted]/[redacted]/[redacted]/[redacted]/[redacted]/magic_link/[redacted]/email-confirmation/[redacted]/x"
+    },
+    {
+      "name": "path hint: lookalike segments give no hint",
+      "url": "https://shop.az/resets/a1b2c3d4/tokens/a1b2c3d4/author/a1b2c3d4/logins/a1b2c3d4/emails/a1b2c3d4/telephone/a1b2c3d4",
+      "expected": "https://shop.az/resets/[redacted]/tokens/[redacted]/author/a1b2c3d4/logins/[redacted]/emails/a1b2c3d4/telephone/a1b2c3d4"
+    },
+    {
+      "name": "path hint: digits-only, UUID, short and one-digit segments",
+      "url": "https://shop.az/verify/123456/otp/12345/reset/3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b/invite/abcdef/token/abcde1/magic/ab12cd",
+      "expected": "https://shop.az/verify/[redacted]/otp/12345/reset/[redacted]/invite/abcdef/token/abcde1/magic/[redacted]"
+    },
+    {
+      "name": "path hint: word of four letters keeps the segment",
+      "url": "https://shop.az/reset/ab12-cd34/reset/abcd-1234/reset/a1.b2~c3_d4/reset/user_12345/reset/x=12ab+/reset/12ab,34",
+      "expected": "https://shop.az/reset/[redacted]/reset/abcd-1234/reset/[redacted]/reset/user_12345/reset/[redacted]/reset/12ab,34"
+    },
+    {
+      "name": "path hint: applies to every following segment",
+      "url": "https://shop.az/reset//a1b2c3d4/a1b2c3d4/x",
+      "expected": "https://shop.az/reset//[redacted]/[redacted]/x"
+    },
+    {
+      "name": "path hint: hint segment longer than 64 characters still gives a hint",
+      "url": "https://shop.az/reset-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/a1b2c3d4/reset-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/a1b2c3d4",
+      "expected": "https://shop.az/[redacted]/[redacted]/[redacted]/[redacted]"
+    },
+    {
+      "name": "path hint: percent-encoded hint and secret segments",
+      "url": "https://shop.az/%72eset/a1b2c3d4/reset/%61%31b2c3d4/reset%2Fpassword/a1b2c3d4",
+      "expected": "https://shop.az/%72eset/[redacted]/reset/[redacted]/reset%2Fpassword/[redacted]"
+    },
+    {
+      "name": "path: segments shorter than 6 characters are never redacted",
+      "url": "https://shop.az/reset/a1b2c/otp/12345/pin/0000",
+      "expected": "https://shop.az/reset/a1b2c/otp/12345/pin/0000"
+    },
+    {
+      "name": "path: matrix parameters",
+      "url": "https://shop.az/app;jsessionid=ABC123;v=2/reset;token=x/a1b2c3d4;key=1;lang=az/x;;a=1",
+      "expected": "https://shop.az/app;v=2/reset/[redacted];lang=az/x;;a=1"
+    },
+    {
+      "name": "path: matrix segment with secret first part",
+      "url": "https://shop.az/f/d41d8cd98f00b204e9800998ecf8427e;v=1/g/da39a3ee5e6b4b0d3255bfef95601890afd80709;token=1",
+      "expected": "https://shop.az/f/[redacted];v=1/g/[redacted]"
+    },
+    {
+      "name": "path: e-mail in path",
+      "url": "https://mail.shop.az/u/User.Test@Example.com/orders/a@b/c@d.org/@handle/x%40y.io",
+      "expected": "https://mail.shop.az/u/[redacted]/orders/a@b/[redacted]/@handle/[redacted]"
+    },
+    {
+      "name": "path: non-ASCII and percent-encoded UTF-8",
+      "url": "https://shop.az/m\u0259hsul/\u00e7anta-1/%C3%A7anta/\ud83d\ude00/reset/\u00e712\u015f34x",
+      "expected": "https://shop.az/m\u0259hsul/\u00e7anta-1/%C3%A7anta/\ud83d\ude00/reset/\u00e712\u015f34x"
+    },
+    {
+      "name": "path: invalid percent-encoding in a segment",
+      "url": "https://shop.az/reset/a1%zzb2c3/x/%E0%A4%A/+99450123%4567",
+      "expected": "https://shop.az/reset/a1%zzb2c3/x/%E0%A4%A/+99450123%4567"
+    },
+    {
+      "name": "path: trailing slash, double slashes, dot segments",
+      "url": "https://shop.az//a//b/../c/./",
+      "expected": "https://shop.az//a//b/../c/./"
+    },
+    {
+      "name": "fragment: plain anchor is dropped",
+      "url": "https://shop.az/p?a=1#section-2",
+      "expected": "https://shop.az/p?a=1"
+    },
+    {
+      "name": "fragment: anchor with secret is dropped",
+      "url": "https://shop.az/p#access_token=abc&x=1",
+      "expected": "https://shop.az/p"
+    },
+    {
+      "name": "fragment: hash route is kept and cleaned like a path",
+      "url": "https://shop.az/app#/reset/9f8a7b6c5d4e/done",
+      "expected": "https://shop.az/app#/reset/[redacted]/done"
+    },
+    {
+      "name": "fragment: hashbang route",
+      "url": "https://shop.az/app#!/orders/da39a3ee5e6b4b0d3255bfef95601890afd80709?page=2",
+      "expected": "https://shop.az/app#!/orders/[redacted]?page=2"
+    },
+    {
+      "name": "fragment: hash route query",
+      "url": "https://shop.az/app?a=1#/callback?access_token=T&state=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz&tab=1",
+      "expected": "https://shop.az/app?a=1#/callback?state=[redacted]&tab=1"
+    },
+    {
+      "name": "fragment: hash route with only sensitive query",
+      "url": "https://shop.az/app#/cb?token=1",
+      "expected": "https://shop.az/app#/cb"
+    },
+    {
+      "name": "fragment: e-mail in hash route",
+      "url": "https://shop.az/#/inbox/e@f.io?to=g%40h.com&n=1",
+      "expected": "https://shop.az/#/inbox/[redacted]?to=[redacted]&n=1"
+    },
+    {
+      "name": "fragment: second hash stays inside the route",
+      "url": "https://shop.az/#/a#b/c",
+      "expected": "https://shop.az/#/a#b/c"
+    },
+    {
+      "name": "fragment: root hash route",
+      "url": "https://shop.az/#/",
+      "expected": "https://shop.az/#/"
+    },
+    {
+      "name": "fragment: empty and bare hash",
+      "url": "https://shop.az/p#",
+      "expected": "https://shop.az/p"
+    },
+    {
+      "name": "origin: user info is removed",
+      "url": "https://user:pass@shop.az/p?a=1",
+      "expected": "https://shop.az/p?a=1"
+    },
+    {
+      "name": "origin: user info with several at signs is removed up to the last one",
+      "url": "https://user:p@ss@shop.az/p",
+      "expected": "https://shop.az/p"
+    },
+    {
+      "name": "origin: user name only, and e-mail-shaped host part stays",
+      "url": "https://user@shop.az/x/https://a@b.az",
+      "expected": "https://shop.az/x/https://[redacted]"
+    },
+    {
+      "name": "origin: host and port are untouched",
+      "url": "https://token.secret-key.shop.az:8443/p?a=1",
+      "expected": "https://token.secret-key.shop.az:8443/p?a=1"
+    },
+    {
+      "name": "origin: upper-case scheme and host",
+      "url": "HTTPS://Shop.AZ/Path?Token=1&A=1",
+      "expected": "HTTPS://Shop.AZ/Path?A=1"
+    },
+    {
+      "name": "origin: app scheme deep link",
+      "url": "myapp://open/product/5?utm_source=x&session=1&ref=a%40b.az",
+      "expected": "myapp://open/product/5?utm_source=x&ref=[redacted]"
+    },
+    {
+      "name": "origin: app scheme, the first component is the host and can be a hint",
+      "url": "myapp://reset/123456?next=home",
+      "expected": "myapp://reset/[redacted]?next=home"
+    },
+    {
+      "name": "origin: scheme with plus, dot and dash",
+      "url": "com.shop-app+v2://host/verify/a1b2c3d4",
+      "expected": "com.shop-app+v2://host/verify/[redacted]"
+    },
+    {
+      "name": "origin: no path",
+      "url": "https://shop.az",
+      "expected": "https://shop.az"
+    },
+    {
+      "name": "origin: query directly after host",
+      "url": "https://shop.az?token=1&a=1#/x",
+      "expected": "https://shop.az?a=1#/x"
+    },
+    {
+      "name": "no origin: absolute path",
+      "url": "/account/reset/9f8a7b6c5d4e?key=1&tab=2#top",
+      "expected": "/account/reset/[redacted]?tab=2"
+    },
+    {
+      "name": "no origin: protocol-relative",
+      "url": "//user:pw@shop.az/p?token=1&a=1",
+      "expected": "//[redacted]/p?a=1"
+    },
+    {
+      "name": "no origin: query only",
+      "url": "?token=1&a=1",
+      "expected": "?a=1"
+    },
+    {
+      "name": "no origin: plain text",
+      "url": "not a url at all",
+      "expected": "not a url at all"
+    },
+    {
+      "name": "no origin: scheme without slashes",
+      "url": "mailto:user@example.com?subject=x",
+      "expected": "[redacted]?subject=x"
+    },
+    {
+      "name": "limit: result is cut to 2048 characters",
+      "url": "https://shop.az/p?a=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expected": "https://shop.az/p?a=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "limit: cut does not split a surrogate pair",
+      "url": "https://shop.az/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ud83d\ude00\ud83d\ude00",
+      "expected": "https://shop.az/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "limit: 4096 characters in, sensitive parameter at the end",
+      "url": "https://shop.az/p?a=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&token=1",
+      "expected": "https://shop.az/p?a=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "special: NUL characters are removed from the result",
+      "url": "https://shop.az/p\u0000ath?a=b\u0000c",
+      "expected": "https://shop.az/path?a=bc"
+    },
+    {
+      "name": "special: whitespace and control characters",
+      "url": "https://shop.az/a b/c\td?x=1 2&to ken=3&e=a@b.az c@d.az",
+      "expected": "https://shop.az/a b/c\td?x=1 2&to ken=3&e=[redacted] [redacted]"
+    },
+    {
+      "name": "special: empty string",
+      "url": "",
+      "expected": ""
+    },
+    {
+      "name": "v2 A1 reset: id then token",
+      "url": "https://shop.az/account/reset/6789012345678/5d41402abc4b2a76b9719d911017c592-1626868876",
+      "expected": "https://shop.az/account/reset/[redacted]/[redacted]"
+    },
+    {
+      "name": "v2 A1 activate: id then hex",
+      "url": "https://shop.az/account/activate/6789012345678/5d41402abc4b2a76b9719d911017c592",
+      "expected": "https://shop.az/account/activate/[redacted]/[redacted]"
+    },
+    {
+      "name": "v2 A1 hash route reset: id then token",
+      "url": "https://shop.az/app#/reset/123456/5d41402abc4b2a76b9719d911017c592-1626868876",
+      "expected": "https://shop.az/app#/reset/[redacted]/[redacted]"
+    },
+    {
+      "name": "v2 A1 django uid and token",
+      "url": "https://shop.az/accounts/reset/MQ/c5k9p3-0123456789abcdef0123456789abcdef/",
+      "expected": "https://shop.az/accounts/reset/[redacted]/[redacted]/"
+    },
+    {
+      "name": "v2 A1 django signed value with colons",
+      "url": "https://shop.az/accounts/confirm-email/MQ:1qR5tZ:h7Gk2mN9pL4xV8bC3dF6jW0yT5uI1oE2aS/",
+      "expected": "https://shop.az/accounts/confirm-email/[redacted]/"
+    },
+    {
+      "name": "v2 A1 short id then short token",
+      "url": "https://shop.az/password/reset/12345/a1b2c3d4e5f6a7b8",
+      "expected": "https://shop.az/password/reset/[redacted]/[redacted]"
+    },
+    {
+      "name": "v2 A1 token with a mixed-case four letter part",
+      "url": "https://shop.az/reset-password/kQzR-9f8a7b6c5d4e3f2a1b0c",
+      "expected": "https://shop.az/reset-password/[redacted]"
+    },
+    {
+      "name": "v2 A1 letters-only token with one digit",
+      "url": "https://shop.az/reset-password/xKmPvQwLnRsTyZaBcDe7",
+      "expected": "https://shop.az/reset-password/[redacted]"
+    },
+    {
+      "name": "v2 A1 hinted token three segments later",
+      "url": "https://shop.az/verify/email/user/9f8a7b6c5d4e",
+      "expected": "https://shop.az/verify/email/user/9f8a7b6c5d4e"
+    },
+    {
+      "name": "v2 A1 hinted long lower-case run is not a word",
+      "url": "https://shop.az/invite/abcdefghijklmnopqrstuvwx",
+      "expected": "https://shop.az/invite/[redacted]"
+    },
+    {
+      "name": "v2 A1 unhinted 24+ mixed run",
+      "url": "https://shop.az/d/kQzR9f8a7b6c5d4e3f2a1b0cXy",
+      "expected": "https://shop.az/d/[redacted]"
+    },
+    {
+      "name": "v2 A1 unhinted run inside a longer segment",
+      "url": "https://shop.az/d/doc-kQzR9f8a7b6c5d4e3f2a1b0cXy.pdf",
+      "expected": "https://shop.az/d/[redacted]"
+    },
+    {
+      "name": "v2 A1 matrix parameter after a masked segment",
+      "url": "https://shop.az/reset/MQ;v=1/c5k9p3-0123456789abcdef0123456789abcdef;lang=az",
+      "expected": "https://shop.az/reset/[redacted];v=1/[redacted];lang=az"
+    },
+    {
+      "name": "v2 A1 negative: ordinary words after a hint",
+      "url": "https://shop.az/reset-password/success",
+      "expected": "https://shop.az/reset-password/success"
+    },
+    {
+      "name": "v2 A1 negative: verify email",
+      "url": "https://shop.az/verify/email",
+      "expected": "https://shop.az/verify/email"
+    },
+    {
+      "name": "v2 A1 negative: login then slug and words",
+      "url": "https://shop.az/login/forgot-your-password/Step/next",
+      "expected": "https://shop.az/login/forgot-your-password/Step/next"
+    },
+    {
+      "name": "v2 A1 negative: hinted upper-case word alone",
+      "url": "https://shop.az/login/FAQ/Home",
+      "expected": "https://shop.az/login/FAQ/Home"
+    },
+    {
+      "name": "v2 A1 negative: 24 hex object id",
+      "url": "https://shop.az/product/507f1f77bcf86cd799439011",
+      "expected": "https://shop.az/product/507f1f77bcf86cd799439011"
+    },
+    {
+      "name": "v2 A1 negative: uuid",
+      "url": "https://shop.az/order/3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b",
+      "expected": "https://shop.az/order/3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b"
+    },
+    {
+      "name": "v2 A1 negative: long product slug with numbers",
+      "url": "https://shop.az/p/samsung-galaxy-s24-ultra-512gb-titanium-black-2024",
+      "expected": "https://shop.az/p/samsung-galaxy-s24-ultra-512gb-titanium-black-2024"
+    },
+    {
+      "name": "v2 A1 negative: blog date path",
+      "url": "https://shop.az/blog/2026/11/25/title",
+      "expected": "https://shop.az/blog/2026/11/25/title"
+    },
+    {
+      "name": "v2 A1 negative: order number",
+      "url": "https://shop.az/order/12345",
+      "expected": "https://shop.az/order/12345"
+    },
+    {
+      "name": "v2 A1 negative: category path",
+      "url": "https://shop.az/category/elektronika/telefonlar/page/3",
+      "expected": "https://shop.az/category/elektronika/telefonlar/page/3"
+    },
+    {
+      "name": "v2 A1 negative: non-ascii slug",
+      "url": "https://shop.az/m%C9%99hsul/qad%C4%B1n-geyiml%C9%99ri-2026",
+      "expected": "https://shop.az/m%C9%99hsul/qad%C4%B1n-geyiml%C9%99ri-2026"
+    },
+    {
+      "name": "v2 A2 checkword parameter",
+      "url": "https://site.ru/auth/?change_password=yes&USER_CHECKWORD=5d41402abc4b2a76b9719d911017c592&USER_LOGIN=ivan",
+      "expected": "https://site.ru/auth/?USER_LOGIN=ivan"
+    },
+    {
+      "name": "v2 A2 magic link hex value",
+      "url": "https://shop.az/login/magic?t=5d41402abc4b2a76b9719d911017c5929f86d081884c7d659a2feaa0c55ad015",
+      "expected": "https://shop.az/login/magic?t=[redacted]"
+    },
+    {
+      "name": "v2 A2 cc parameter",
+      "url": "https://shop.az/pay?cc=4111111111111111&step=2",
+      "expected": "https://shop.az/pay?step=2"
+    },
+    {
+      "name": "v2 A2 card number as a value",
+      "url": "https://shop.az/pay?n=4111111111111111&m=4111-1111-1111-1111&k=4111%201111%201111%201111&amex=378282246310005",
+      "expected": "https://shop.az/pay?n=[redacted]&m=[redacted]&k=[redacted]&amex=[redacted]"
+    },
+    {
+      "name": "v2 A2 phone value with plus",
+      "url": "https://shop.az/sms?to=%2B994501234567&x=1",
+      "expected": "https://shop.az/sms?to=[redacted]&x=1"
+    },
+    {
+      "name": "v2 A2 base64 value with padding",
+      "url": "https://shop.az/cb?data=QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Njc4OTAxMjM0NTY3OA%3D%3D&ok=1",
+      "expected": "https://shop.az/cb?data=[redacted]&ok=1"
+    },
+    {
+      "name": "v2 A2 long mixed value",
+      "url": "https://shop.az/cb?ref=kQzR9f8a7b6c5d4e3f2a1b0cXyZ&ok=1",
+      "expected": "https://shop.az/cb?ref=[redacted]&ok=1"
+    },
+    {
+      "name": "v2 A2 card in path with hyphens",
+      "url": "https://shop.az/pay/4111-1111-1111-1111",
+      "expected": "https://shop.az/pay/[redacted]"
+    },
+    {
+      "name": "v2 A2 amex and bare 12 digits in path",
+      "url": "https://shop.az/u/994501234567/c/378282246310005",
+      "expected": "https://shop.az/u/994501234567/c/[redacted]"
+    },
+    {
+      "name": "v2 A2 digit lengths in path",
+      "url": "https://shop.az/n/1234567890/12345678901234/4111111111111111/4111111111111112/12345678901234567890",
+      "expected": "https://shop.az/n/1234567890/12345678901234/[redacted]/4111111111111112/[redacted]"
+    },
+    {
+      "name": "v2 A2 new sensitive names",
+      "url": "https://shop.az/p?activation=1&confirm=1&verify=1&invite=1&unsubscribe=1&ticket=1&SAMLResponse=1&samlresponse=1&checkword=1&magic=1&keep=1",
+      "expected": "https://shop.az/p?keep=1"
+    },
+    {
+      "name": "v2 A2 run-together compounds",
+      "url": "https://shop.az/p?cardnumber=1&authcode=1&smscode=1&otpcode=1&resetcode=1&accesskey=1&privatekey=1&homephone=1&mobilephone=1&pw=1&cc=1&keep=1",
+      "expected": "https://shop.az/p?cc=1&keep=1"
+    },
+    {
+      "name": "v2 A2 negative: lookalike names stay",
+      "url": "https://shop.az/p?confirmed=1&verified=1&invited=1&tickets=2&magical=1&pwa=1&ccy=AZN&account=5",
+      "expected": "https://shop.az/p?confirmed=1&verified=1&invited=1&tickets=2&magical=1&pwa=1&ccy=AZN&account=5"
+    },
+    {
+      "name": "v2 A2 negative: utm and click id values are not value-scrubbed",
+      "url": "https://shop.az/?utm_content=kQzR9f8a7b6c5d4e3f2a1b0cXyZ&gclid=EAIaIQobChMIkQzR9f8a7b6c5d4e3f2a1b0cXyZ_BwE&utm_id=12345678901234567890",
+      "expected": "https://shop.az/?utm_content=kQzR9f8a7b6c5d4e3f2a1b0cXyZ&gclid=EAIaIQobChMIkQzR9f8a7b6c5d4e3f2a1b0cXyZ_BwE&utm_id=12345678901234567890"
+    },
+    {
+      "name": "v2 A2 negative: pagination and search",
+      "url": "https://shop.az/search?q=search+words&page=2&per_page=50&sort=price_asc&id=507f1f77bcf86cd799439011&ts=1700000000000",
+      "expected": "https://shop.az/search?q=search+words&page=2&per_page=50&sort=price_asc&id=507f1f77bcf86cd799439011&ts=1700000000000"
+    },
+    {
+      "name": "v2 A2 negative: short and ordinary values",
+      "url": "https://shop.az/p?color=red&size=XL&sku=AB-12345&date=2026-11-25&order=1234567890",
+      "expected": "https://shop.az/p?color=red&size=XL&sku=AB-12345&date=2026-11-25&order=1234567890"
+    },
+    {
+      "name": "v2 A3 azerbaijani names",
+      "url": "https://shop.az/p?telefon=1&telefonNomresi=1&mobil=1&nomre=1&n%C3%B6mr%C9%99=1&parol=1&yeniParol=1&sifre=1&%C5%9Fifr%C9%99=1&shifre=1&kart=1&kartNomresi=1&poct=1&po%C3%A7t=1&eposta=1&whatsapp=1&keep=1",
+      "expected": "https://shop.az/p?mobil=1&keep=1"
+    },
+    {
+      "name": "v2 A3 upper-case azerbaijani names",
+      "url": "https://shop.az/p?TELEFON=1&%C5%9E%C4%B0FR%C6%8F=1&N%C3%96MR%C6%8F=1&Po%C3%A7t=1&keep=1",
+      "expected": "https://shop.az/p?keep=1"
+    },
+    {
+      "name": "v2 A3 negative: lookalikes stay",
+      "url": "https://shop.az/p?mobilya=1&karton=1&nomreler=1&telefonlar=1x&xkart=1",
+      "expected": "https://shop.az/p?mobilya=1&karton=1&nomreler=1&xkart=1"
+    },
+    {
+      "name": "v2 A6 app link: host is a hint word",
+      "url": "myapp://reset/123456",
+      "expected": "myapp://reset/[redacted]"
+    },
+    {
+      "name": "v2 A6 app link: verify code",
+      "url": "myapp://verify/482913",
+      "expected": "myapp://verify/[redacted]"
+    },
+    {
+      "name": "v2 A6 app link: host is a secret",
+      "url": "myapp://0123456789abcdef0123456789abcdef01234567/open",
+      "expected": "myapp://[redacted]/open"
+    },
+    {
+      "name": "v2 A6 app link: reset-password host",
+      "url": "myapp://reset-password/9f8a7b6c5d4e",
+      "expected": "myapp://reset-password/[redacted]"
+    },
+    {
+      "name": "v2 A6 app link: user info and query",
+      "url": "myapp://user:pw@reset/123456?x=1",
+      "expected": "myapp://reset/[redacted]?x=1"
+    },
+    {
+      "name": "v2 A6 app link: ordinary host and path",
+      "url": "myapp://product/12345/reviews?page=2",
+      "expected": "myapp://product/12345/reviews?page=2"
+    },
+    {
+      "name": "v2 A6 app link: upper-case scheme",
+      "url": "MyApp://Login/9f8a7b6c5d4e",
+      "expected": "MyApp://Login/[redacted]"
+    },
+    {
+      "name": "v2 A6 https host is never a path segment",
+      "url": "https://reset.shop.az/home",
+      "expected": "https://reset.shop.az/home"
+    },
+    {
+      "name": "v2 A6 nested app link value",
+      "url": "https://shop.az/go?link=myapp%3A%2F%2Fverify%2F482913",
+      "expected": "https://shop.az/go?link=myapp%3A%2F%2Fverify%2F%5Bredacted%5D"
+    },
+    {
+      "name": "v2 A8 new click ids kept with ads",
+      "url": "https://shop.az/?ScCid=a1&sccid=a2&rdt_cid=b&_gl=1*abc*_ga*MTIz&mc_eid=c&srsltid=AfmBOoq1&epik=dj0yJnU9&gad_source=1&x=1",
+      "expected": "https://shop.az/?ScCid=a1&sccid=a2&rdt_cid=b&_gl=1*abc*_ga*MTIz&mc_eid=c&srsltid=AfmBOoq1&epik=dj0yJnU9&gad_source=1&x=1"
+    },
+    {
+      "name": "v2 A8 new click ids stripped without ads",
+      "url": "https://shop.az/?ScCid=a1&sccid=a2&rdt_cid=b&_gl=1*abc*_ga*MTIz&mc_eid=c&srsltid=AfmBOoq1&epik=dj0yJnU9&gad_source=1&x=1",
+      "ads": false,
+      "expected": "https://shop.az/?x=1"
+    },
+    {
+      "name": "audit2 A1 short mixed-case token after reset",
+      "url": "https://shop.az/reset/GBwfxTRf",
+      "expected": "https://shop.az/reset/[redacted]"
+    },
+    {
+      "name": "audit2 A1 ten letter mixed-case token after reset",
+      "url": "https://shop.az/reset/aKdmQzTwLp",
+      "expected": "https://shop.az/reset/[redacted]"
+    },
+    {
+      "name": "audit2 A1 token with separators after reset",
+      "url": "https://shop.az/reset/Xk9mQ_Tzwpab-R2d",
+      "expected": "https://shop.az/reset/[redacted]"
+    },
+    {
+      "name": "audit2 A1 base64 parts after reset",
+      "url": "https://shop.az/reset/dGhpcyBpcyBh_Zmlyc3Q",
+      "expected": "https://shop.az/reset/[redacted]"
+    },
+    {
+      "name": "audit2 A1 word and token in one segment",
+      "url": "https://shop.az/reset/user-4f9c2a71b3e8",
+      "expected": "https://shop.az/reset/[redacted]"
+    },
+    {
+      "name": "audit2 A1 token with html extension",
+      "url": "https://shop.az/reset/4f9c2a71b3e8.html",
+      "expected": "https://shop.az/reset/[redacted]"
+    },
+    {
+      "name": "audit2 A1 hint word and token in the same segment",
+      "url": "https://shop.az/signup/confirm-4f9c2a71b3e8",
+      "expected": "https://shop.az/signup/[redacted]"
+    },
+    {
+      "name": "audit2 A1 six digit code after verify",
+      "url": "https://shop.az/verify/482913",
+      "expected": "https://shop.az/verify/[redacted]"
+    },
+    {
+      "name": "audit2 A1 six digit code after dogrulama",
+      "url": "https://shop.az/dogrulama/482913",
+      "expected": "https://shop.az/dogrulama/[redacted]"
+    },
+    {
+      "name": "audit2 A1 lower-case letters only after reset are an ordinary word",
+      "url": "https://shop.az/reset/qmzkwtxplrvb",
+      "expected": "https://shop.az/reset/qmzkwtxplrvb"
+    },
+    {
+      "name": "audit2 A1 uid and token after reset",
+      "url": "https://shop.az/reset/MQ/c4x-9f8a7b6c5d4e",
+      "expected": "https://shop.az/reset/[redacted]/[redacted]"
+    },
+    {
+      "name": "audit2 A1 third segment after the hint is not hinted",
+      "url": "https://shop.az/reset/a/b/4f9c2a71b3e8",
+      "expected": "https://shop.az/reset/a/b/4f9c2a71b3e8"
+    },
+    {
+      "name": "audit2 A2 resetpassword",
+      "url": "https://shop.az/resetpassword/4f9c2a71b3e8",
+      "expected": "https://shop.az/resetpassword/[redacted]"
+    },
+    {
+      "name": "audit2 A2 ResetPassword",
+      "url": "https://shop.az/ResetPassword/4f9c2a71b3e8",
+      "expected": "https://shop.az/ResetPassword/[redacted]"
+    },
+    {
+      "name": "audit2 A2 forgotpassword",
+      "url": "https://shop.az/forgotpassword/4f9c2a71b3e8",
+      "expected": "https://shop.az/forgotpassword/[redacted]"
+    },
+    {
+      "name": "audit2 A2 forgot",
+      "url": "https://shop.az/forgot/4f9c2a71b3e8",
+      "expected": "https://shop.az/forgot/[redacted]"
+    },
+    {
+      "name": "audit2 A2 sign-in",
+      "url": "https://shop.az/sign-in/4f9c2a71b3e8",
+      "expected": "https://shop.az/sign-in/[redacted]"
+    },
+    {
+      "name": "audit2 A2 log-in",
+      "url": "https://shop.az/log-in/4f9c2a71b3e8",
+      "expected": "https://shop.az/log-in/[redacted]"
+    },
+    {
+      "name": "audit2 A2 sifremi-unuttum",
+      "url": "https://shop.az/sifremi-unuttum/4f9c2a71b3e8",
+      "expected": "https://shop.az/sifremi-unuttum/[redacted]"
+    },
+    {
+      "name": "audit2 A2 sifreni-berpa-et",
+      "url": "https://shop.az/sifreni-berpa-et/4f9c2a71b3e8",
+      "expected": "https://shop.az/sifreni-berpa-et/[redacted]"
+    },
+    {
+      "name": "audit2 A2 Azerbaijani letters",
+      "url": "https://shop.az/\u015fifr\u0259ni-yenil\u0259/4f9c2a71b3e8",
+      "expected": "https://shop.az/\u015fifr\u0259ni-yenil\u0259/[redacted]"
+    },
+    {
+      "name": "audit2 A2 Azerbaijani letters percent-encoded",
+      "url": "https://shop.az/%C5%9Fifr%C9%99ni-yenil%C9%99/4f9c2a71b3e8",
+      "expected": "https://shop.az/%C5%9Fifr%C9%99ni-yenil%C9%99/[redacted]"
+    },
+    {
+      "name": "audit2 A2 parolu-berpa-et",
+      "url": "https://shop.az/parolu-berpa-et/4f9c2a71b3e8",
+      "expected": "https://shop.az/parolu-berpa-et/[redacted]"
+    },
+    {
+      "name": "audit2 A2 tesdiq",
+      "url": "https://shop.az/hesab/tesdiq/4f9c2a71b3e8",
+      "expected": "https://shop.az/hesab/tesdiq/[redacted]"
+    },
+    {
+      "name": "audit2 A2 aktivlesdir",
+      "url": "https://shop.az/hesab/aktivlesdir/4f9c2a71b3e8",
+      "expected": "https://shop.az/hesab/aktivlesdir/[redacted]"
+    },
+    {
+      "name": "audit2 A2 every hint stem",
+      "url": "https://shop.az/a/reset/t0k3nA1/b/forgot/t0k3nA1/b/passwd/t0k3nA1/b/unuttum/t0k3nA1/b/tesdiq/t0k3nA1/b/dogrula/t0k3nA1/b/signin/t0k3nA1/b/login/t0k3nA1/b/verify/t0k3nA1/b/verification/t0k3nA1/b/confirm/t0k3nA1/b/activate/t0k3nA1/b/magic/t0k3nA1/b/invite/t0k3nA1/b/unsubscribe/t0k3nA1/b/otp/t0k3nA1/b/token/t0k3nA1/b/recover/t0k3nA1/b/sso/t0k3nA1",
+      "expected": "https://shop.az/a/reset/[redacted]/b/forgot/[redacted]/b/passwd/[redacted]/b/unuttum/[redacted]/b/tesdiq/[redacted]/b/dogrula/[redacted]/b/signin/[redacted]/b/login/[redacted]/b/verify/[redacted]/b/verification/[redacted]/b/confirm/[redacted]/b/activate/[redacted]/b/magic/[redacted]/b/invite/[redacted]/b/unsubscribe/[redacted]/b/otp/[redacted]/b/token/[redacted]/b/recover/[redacted]/b/sso/[redacted]"
+    },
+    {
+      "name": "audit2 A2 otp is a whole word only",
+      "url": "https://shop.az/hotpoint/t0k3nA1/laptop/t0k3nA1",
+      "expected": "https://shop.az/hotpoint/t0k3nA1/laptop/t0k3nA1"
+    },
+    {
+      "name": "audit2 A3 hash route with ampersand parameters",
+      "url": "https://app.shop.az/#/home&state=8f14e45f-ceea-467a-9a36-dedd4bea2543&session_state=1b2c3d4e-ceea-467a-9a36-dedd4bea2543&code=8f14e45f-ceea-467a-9a36-dedd4bea2543.1b2c3d4e-ceea-467a-9a36-dedd4bea2543.9a8b7c6d-ceea-467a-9a36-dedd4bea2543",
+      "expected": "https://app.shop.az/#/home&state=8f14e45f-ceea-467a-9a36-dedd4bea2543"
+    },
+    {
+      "name": "audit2 A3 hash route that is a parameter",
+      "url": "https://app.shop.az/#/access_token=2YotnFZFEjr1zCsicMWpAA&token_type=bearer&expires_in=3600",
+      "expected": "https://app.shop.az/#/expires_in=3600"
+    },
+    {
+      "name": "audit2 A3 hash route id_token",
+      "url": "https://app.shop.az/#/id_token=eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOWdkazcifQ.eyJzdWIiOiIyNDgyODk3NjEwMDEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c&state=abc",
+      "expected": "https://app.shop.az/#/state=abc"
+    },
+    {
+      "name": "audit2 A3 hash route callback with tokens",
+      "url": "https://app.shop.az/#/callback&access_token=2YotnFZFEjr1zCsicMWpAA&refresh_token=tGzv3JOkF0XG5Qx2TlKWIA",
+      "expected": "https://app.shop.az/#/callback"
+    },
+    {
+      "name": "audit2 A3 hash route login with password",
+      "url": "https://app.shop.az/#/login&password=hunter2&email=x",
+      "expected": "https://app.shop.az/#/login"
+    },
+    {
+      "name": "audit2 A3 hash route with harmless parameters is unchanged",
+      "url": "https://app.shop.az/#/search/q=shoes&page=2",
+      "expected": "https://app.shop.az/#/search/q=shoes&page=2"
+    },
+    {
+      "name": "audit2 A3 hashbang parameter",
+      "url": "https://app.shop.az/#!token=abcdef&page=2",
+      "expected": "https://app.shop.az/#!page=2"
+    },
+    {
+      "name": "audit2 A3 hash route parameters and a query",
+      "url": "https://app.shop.az/#/cb&code=abc123?session=xyz&keep=1",
+      "expected": "https://app.shop.az/#/cb?keep=1"
+    },
+    {
+      "name": "audit2 A6 hint reaches the query",
+      "url": "https://shop.az/reset?t=4f9c2a71b3e8&u=15",
+      "expected": "https://shop.az/reset?t=[redacted]&u=15"
+    },
+    {
+      "name": "audit2 A6 reset-password id",
+      "url": "https://shop.az/reset-password?id=4f9c2a71b3e8",
+      "expected": "https://shop.az/reset-password?id=[redacted]"
+    },
+    {
+      "name": "audit2 A6 key-less query after verify",
+      "url": "https://shop.az/verify?4f9c2a71b3e8",
+      "expected": "https://shop.az/verify?[redacted]"
+    },
+    {
+      "name": "audit2 A6 key-less base64 after unsubscribe",
+      "url": "https://shop.az/unsubscribe?ZmFyaWRAbWFpbC5heg",
+      "expected": "https://shop.az/unsubscribe?[redacted]"
+    },
+    {
+      "name": "audit2 A6 key-less JWT without a hint",
+      "url": "https://shop.az/cb?eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOWdkazcifQ.eyJzdWIiOiIyNDgyODk3NjEwMDEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+      "expected": "https://shop.az/cb?[redacted]"
+    },
+    {
+      "name": "audit2 A6 ordinary key-less flags are kept",
+      "url": "https://shop.az/list?grid&sorted&v2",
+      "expected": "https://shop.az/list?grid&sorted&v2"
+    },
+    {
+      "name": "audit2 A6 query of a non-hint path is not hinted",
+      "url": "https://shop.az/products?t=4f9c2a71b3e8&u=15",
+      "expected": "https://shop.az/products?t=4f9c2a71b3e8&u=15"
+    },
+    {
+      "name": "audit2 A6 hash route hint reaches its query",
+      "url": "https://shop.az/#/reset?t=4f9c2a71b3e8",
+      "expected": "https://shop.az/#/reset?t=[redacted]"
+    },
+    {
+      "name": "audit2 A6 deep link hint reaches the query",
+      "url": "shop://reset?t=4f9c2a71b3e8",
+      "expected": "shop://reset?t=[redacted]"
+    },
+    {
+      "name": "audit2 A7 Azerbaijani code names",
+      "url": "https://shop.az/x?tesdiq_kodu=482913&kod=482913&sms_kod=482913&dogrulama_kodu=482913&sifre_kodu=1&keep=1",
+      "expected": "https://shop.az/x?keep=1"
+    },
+    {
+      "name": "audit2 A7 psw names",
+      "url": "https://shop.az/x?psw=hunter2&pswd=hunter2&pasword=hunter2&passwd=hunter2&keep=1",
+      "expected": "https://shop.az/x?keep=1"
+    },
+    {
+      "name": "audit2 A7 mixed case names",
+      "url": "https://shop.az/x?PaSsWoRd=hunter2&tOkEn=abc&keep=1",
+      "expected": "https://shop.az/x?keep=1"
+    },
+    {
+      "name": "audit2 A7 safe kod names are kept",
+      "url": "https://shop.az/x?endirim_kodu=YAY10&mehsul_kodu=A54&promo_kod=X",
+      "expected": "https://shop.az/x?endirim_kodu=YAY10&mehsul_kodu=A54&promo_kod=X"
+    },
+    {
+      "name": "audit2 A8 plus as space: card number",
+      "url": "https://shop.az/x?n=4111+1111+1111+1111",
+      "expected": "https://shop.az/x?n=[redacted]"
+    },
+    {
+      "name": "audit2 A8 plus as space: phone",
+      "url": "https://shop.az/search?q=%2B994+50+123+45+67",
+      "expected": "https://shop.az/search?q=[redacted]"
+    },
+    {
+      "name": "audit2 A8 encoded spaces: phone",
+      "url": "https://shop.az/search?q=%2B994%2050%20123%2045%2067",
+      "expected": "https://shop.az/search?q=[redacted]"
+    },
+    {
+      "name": "audit2 A8 plus as space: ordinary search is kept",
+      "url": "https://shop.az/search?q=red+shoes+2026",
+      "expected": "https://shop.az/search?q=red+shoes+2026"
+    },
+    {
+      "name": "audit2 A8 tel: value",
+      "url": "https://shop.az/x?to=tel:%2B994501234567",
+      "expected": "https://shop.az/x?to=[redacted]"
+    },
+    {
+      "name": "audit2 A8 tel: value without plus",
+      "url": "https://shop.az/x?to=TEL:0501234567&go=sms:0501234567",
+      "expected": "https://shop.az/x?to=[redacted]&go=[redacted]"
+    },
+    {
+      "name": "audit2 A8 utm prefix does not exempt other names",
+      "url": "https://shop.az/x?utm_token=Ab12Cd34Ef56Gh78Ij90Kl12Mn34&utm_email=x&utm_source=fb",
+      "expected": "https://shop.az/x?utm_source=fb"
+    },
+    {
+      "name": "audit2 A8 unknown utm name: value is checked",
+      "url": "https://shop.az/x?utm_foo=Ab12Cd34Ef56Gh78Ij90Kl12Mn34&utm_id=Ab12Cd34Ef56Gh78Ij90Kl12Mn34&utm_campaign=Ab12Cd34Ef56Gh78Ij90Kl12Mn34",
+      "expected": "https://shop.az/x?utm_foo=[redacted]&utm_id=Ab12Cd34Ef56Gh78Ij90Kl12Mn34&utm_campaign=Ab12Cd34Ef56Gh78Ij90Kl12Mn34"
+    },
+    {
+      "name": "audit2 B2 phone is not a hint",
+      "url": "https://shop.az/phone/iphone15",
+      "expected": "https://shop.az/phone/iphone15"
+    },
+    {
+      "name": "audit2 B2 phone model",
+      "url": "https://shop.az/phone/SM-A546B",
+      "expected": "https://shop.az/phone/SM-A546B"
+    },
+    {
+      "name": "audit2 B2 phone category and product id",
+      "url": "https://shop.az/phone/apple/iphone-15/p-1234567",
+      "expected": "https://shop.az/phone/apple/iphone-15/p-1234567"
+    },
+    {
+      "name": "audit2 B2 phone-cases",
+      "url": "https://shop.az/phone-cases/p-1234567",
+      "expected": "https://shop.az/phone-cases/p-1234567"
+    },
+    {
+      "name": "audit2 B2 long slug is not a hint",
+      "url": "https://shop.az/blog/how-to-reset-your-password/comments/123456",
+      "expected": "https://shop.az/blog/how-to-reset-your-password/comments/123456"
+    },
+    {
+      "name": "audit2 B2 digits two segments after the hint",
+      "url": "https://shop.az/confirm/order/123456/thank-you",
+      "expected": "https://shop.az/confirm/order/123456/thank-you"
+    },
+    {
+      "name": "audit2 B2 session is not a hint, date",
+      "url": "https://shop.az/session/2026-11-25/slots",
+      "expected": "https://shop.az/session/2026-11-25/slots"
+    },
+    {
+      "name": "audit2 B2 auth is not a hint",
+      "url": "https://shop.az/api/auth/v1/users/1234567",
+      "expected": "https://shop.az/api/auth/v1/users/1234567"
+    },
+    {
+      "name": "audit2 B2 version number",
+      "url": "https://shop.az/docs/auth/v2.1.0/changelog",
+      "expected": "https://shop.az/docs/auth/v2.1.0/changelog"
+    },
+    {
+      "name": "audit2 B2 mail is not a hint",
+      "url": "https://shop.az/mail/inbox/123456",
+      "expected": "https://shop.az/mail/inbox/123456"
+    },
+    {
+      "name": "audit2 B2 static file after login",
+      "url": "https://shop.az/login/assets/app.3f9a2b1c.js",
+      "expected": "https://shop.az/login/assets/app.3f9a2b1c.js"
+    },
+    {
+      "name": "audit2 B2 static file directly after login",
+      "url": "https://shop.az/login/app.3f9a2b1c.min.css",
+      "expected": "https://shop.az/login/app.3f9a2b1c.min.css"
+    },
+    {
+      "name": "audit2 B2 words after login",
+      "url": "https://shop.az/account/login/success",
+      "expected": "https://shop.az/account/login/success"
+    },
+    {
+      "name": "audit2 B2 words after verify",
+      "url": "https://shop.az/verify/email/sent",
+      "expected": "https://shop.az/verify/email/sent"
+    },
+    {
+      "name": "audit2 B2 short step after reset",
+      "url": "https://shop.az/reset/step2",
+      "expected": "https://shop.az/reset/step2"
+    },
+    {
+      "name": "audit2 B2 dates, versions and short numbers after a hint",
+      "url": "https://shop.az/login/2026-11-25/x/verify/v2.1.0/x/reset/page-12/x/login/oauth2/code/google/x/confirm/summer-sale-2026",
+      "expected": "https://shop.az/login/2026-11-25/x/verify/v2.1.0/x/reset/page-12/x/login/oauth2/code/google/x/confirm/summer-sale-2026"
+    },
+    {
+      "name": "audit2 B2 camelCase and upper-case words after a hint",
+      "url": "https://shop.az/login/forgotPassword/x/verify/emailSent/x/login/SUCCESS/x/confirm/ThankYou",
+      "expected": "https://shop.az/login/forgotPassword/x/verify/emailSent/x/login/SUCCESS/x/confirm/ThankYou"
+    },
+    {
+      "name": "audit2 B2 tel, email, fin, sig are not hints",
+      "url": "https://shop.az/tel/a1b2c3d4/x/email/1234567/x/fin/1234567/x/sig/1234567",
+      "expected": "https://shop.az/tel/a1b2c3d4/x/email/1234567/x/fin/1234567/x/sig/1234567"
+    },
+    {
+      "name": "audit2 B3 retina asset name",
+      "url": "https://cdn.shop.az/img/logo@2x.png",
+      "expected": "https://cdn.shop.az/img/logo@2x.png"
+    },
+    {
+      "name": "audit2 B3 retina asset name with query",
+      "url": "https://shop.az/img/hero@3x.jpg?w=200",
+      "expected": "https://shop.az/img/hero@3x.jpg?w=200"
+    },
+    {
+      "name": "audit2 B3 fractional scale and upper-case extension",
+      "url": "https://shop.az/img/a@1.5x.webp/b@2x.PNG",
+      "expected": "https://shop.az/img/a@1.5x.webp/b@2x.PNG"
+    },
+    {
+      "name": "audit2 B3 e-mail lookalikes of asset names are still e-mails",
+      "url": "https://shop.az/u/me@2x.example.com/x/me@2x.png.example.com",
+      "expected": "https://shop.az/u/[redacted]/x/[redacted]"
+    },
+    {
+      "name": "audit2 B4 cuid",
+      "url": "https://shop.az/p/clh3am1f30000udocl363eofy",
+      "expected": "https://shop.az/p/clh3am1f30000udocl363eofy"
+    },
+    {
+      "name": "audit2 B4 ULID",
+      "url": "https://shop.az/p/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "expected": "https://shop.az/p/01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    {
+      "name": "audit2 B4 cuid and ULID after a hint are masked",
+      "url": "https://shop.az/reset/clh3am1f30000udocl363eofy/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "expected": "https://shop.az/reset/[redacted]/[redacted]"
+    },
+    {
+      "name": "audit2 B4 Luhn-valid numbers in a path: only a card-like first digit (3-6) is masked",
+      "url": "https://shop.az/order/20261125123456789/x/order/4111111111111111/x/1234567890123456/x/123456789012345678",
+      "expected": "https://shop.az/order/20261125123456789/x/order/[redacted]/x/1234567890123456/x/123456789012345678"
+    },
+    {
+      "name": "audit2 B4 Luhn-valid number in a path after a hint",
+      "url": "https://shop.az/verify/x/4111111111111111",
+      "expected": "https://shop.az/verify/x/[redacted]"
+    },
+    {
+      "name": "audit2 B4 grouped card number in a path",
+      "url": "https://shop.az/order/4111-1111-1111-1111",
+      "expected": "https://shop.az/order/[redacted]"
+    },
+    {
+      "name": "audit2 B4 Luhn-valid number in a query value",
+      "url": "https://shop.az/x?imei=356938035643809&n=4111111111111111",
+      "expected": "https://shop.az/x?imei=[redacted]&n=[redacted]"
+    },
+    {
+      "name": "audit2 B4 pagination cursor",
+      "url": "https://shop.az/x?cursor=eyJpZCI6MTIzNDUsImNyZWF0ZWRfYXQiOiIyMDI2LTExLTI1In0&next_cursor=eyJpZCI6MTIzNDUsImNyZWF0ZWRfYXQiOiIyMDI2LTExLTI1In0&after=eyJpZCI6MTIzNDUsImNyZWF0ZWRfYXQiOiIyMDI2LTExLTI1In0",
+      "expected": "https://shop.az/x?cursor=eyJpZCI6MTIzNDUsImNyZWF0ZWRfYXQiOiIyMDI2LTExLTI1In0&next_cursor=eyJpZCI6MTIzNDUsImNyZWF0ZWRfYXQiOiIyMDI2LTExLTI1In0&after=eyJpZCI6MTIzNDUsImNyZWF0ZWRfYXQiOiIyMDI2LTExLTI1In0"
+    },
+    {
+      "name": "audit2 B4 cursor that is a JWT is masked",
+      "url": "https://shop.az/x?cursor=eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOWdkazcifQ.eyJzdWIiOiIyNDgyODk3NjEwMDEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+      "expected": "https://shop.az/x?cursor=[redacted]"
+    },
+    {
+      "name": "audit2 B4 openstat",
+      "url": "https://shop.az/x?_openstat=ZGlyZWN0LnlhbmRleC5ydTsxMjM0NTY3ODsxMjM0NTY3ODkwO3lhbmRleC5ydTpwcmVtaXVt",
+      "expected": "https://shop.az/x?_openstat=ZGlyZWN0LnlhbmRleC5ydTsxMjM0NTY3ODsxMjM0NTY3ODkwO3lhbmRleC5ydTpwcmVtaXVt"
+    },
+    {
+      "name": "audit2 B5 code names that are kept",
+      "url": "https://shop.az/x?referral_code=AB12CD&invite_code=XYZ123&ref_code=A1&store_code=12&model_code=A54&category_code=5&partner_code=P1",
+      "expected": "https://shop.az/x?referral_code=AB12CD&invite_code=XYZ123&ref_code=A1&store_code=12&model_code=A54&category_code=5&partner_code=P1"
+    },
+    {
+      "name": "audit2 B5 kept code name: value is still checked",
+      "url": "https://shop.az/x?invite_code=Ab12Cd34Ef56Gh78Ij90Kl12Mn34&referral_code=eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOWdkazcifQ.eyJzdWIiOiIyNDgyODk3NjEwMDEifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+      "expected": "https://shop.az/x?invite_code=[redacted]&referral_code=[redacted]"
+    },
+    {
+      "name": "audit2 B5 flags and descriptive names",
+      "url": "https://shop.az/x?mobile=1&card_type=visa&ticket_type=vip&phone_model=a54&cc=az&sign=leo&key=value&code=abc&ticket=vip&pin=1&card=gift",
+      "expected": "https://shop.az/x?mobile=1&card_type=visa&ticket_type=vip&phone_model=a54&cc=az"
+    },
+    {
+      "name": "audit2 B5 mobile and cc with longer values are stripped",
+      "url": "https://shop.az/x?mobile=0501234567&cc=4111&user_mobile=123&keep=1",
+      "expected": "https://shop.az/x?keep=1"
+    },
+    {
+      "name": "audit2 B5 camelCase descriptive names",
+      "url": "https://shop.az/x?cardType=visa&phoneModel=a54&ticketType=vip&phoneNumber=1",
+      "expected": "https://shop.az/x?cardType=visa&phoneModel=a54&ticketType=vip"
+    },
+    {
+      "name": "audit2 A9 matrix parameter flags",
+      "url": "https://shop.az/a;mobile=1;cc=az;mobile=0501234567;keep=1/b",
+      "expected": "https://shop.az/a;mobile=1;cc=az;keep=1/b"
+    },
+    {
+      "name": "audit2 A4 api key in a path and a query",
+      "url": "https://shop.az/k/sk_live_51HabcDEF12345/x?k=sk_test_abcdefghij",
+      "expected": "https://shop.az/k/[redacted]/x?k=[redacted]"
+    },
+    {
+      "name": "audit2 phone word: digits directly after it are masked",
+      "url": "https://shop.az/phone/0501234567/x/tel/994501234567/x/user-mobile/5551234/x/whatsapp/123456/x/phone/apple/0501234567/x/iphone/0501234567",
+      "expected": "https://shop.az/phone/[redacted]/x/tel/[redacted]/x/user-mobile/[redacted]/x/whatsapp/123456/x/phone/apple/0501234567/x/iphone/0501234567"
+    },
+    {
+      "name": "audit3 H1 matrix value: JWT after a hint word",
+      "url": "https://shop.az/reset;t=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz",
+      "expected": "https://shop.az/reset;t=[redacted]"
+    },
+    {
+      "name": "audit3 H1 matrix values: card, phone, api key, hex",
+      "url": "https://shop.az/a;x=4111111111111111;t=+994501234567/b;k=sk_live_51HabcDEF12345;h=9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c/c",
+      "expected": "https://shop.az/a;x=[redacted];t=[redacted]/b;k=[redacted];h=[redacted]/c"
+    },
+    {
+      "name": "audit3 H1 matrix value: short token under a hint",
+      "url": "https://shop.az/reset;t=Xk29LmQa/x",
+      "expected": "https://shop.az/reset;t=[redacted]/x"
+    },
+    {
+      "name": "audit3 H1 matrix value: short token without a hint is kept",
+      "url": "https://shop.az/p;t=Xk29LmQa;lang=en;v=1.2/x;;a",
+      "expected": "https://shop.az/p;t=Xk29LmQa;lang=en;v=1.2/x;;a"
+    },
+    {
+      "name": "audit3 H1 matrix values one and two segments after a hint",
+      "url": "https://shop.az/reset/a;t=Xk29LmQa;n=123456/b;t=Xk29LmQa;n=123456/c;t=Xk29LmQa;n=123456",
+      "expected": "https://shop.az/reset/a;t=[redacted];n=[redacted]/b;t=[redacted];n=123456/c;t=Xk29LmQa;n=123456"
+    },
+    {
+      "name": "audit3 H1 matrix part without a name",
+      "url": "https://shop.az/verify;Xk29LmQa7/x;eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz/y;plain",
+      "expected": "https://shop.az/verify;[redacted]/x;[redacted]/y;plain"
+    },
+    {
+      "name": "audit3 H1 matrix value with a nested url",
+      "url": "https://shop.az/a;next=https%3A%2F%2Fshop.az%2Freset%2FXk29LmQa7;keep=1/b",
+      "expected": "https://shop.az/a;next=https%3A%2F%2Fshop.az%2Freset%2F%5Bredacted%5D;keep=1/b"
+    },
+    {
+      "name": "audit3 H1 matrix sensitive names are still removed",
+      "url": "https://shop.az/a;jsessionid=ABC123;token=x;keep=1/b",
+      "expected": "https://shop.az/a;keep=1/b"
+    },
+    {
+      "name": "audit3 H2 padded base64 in a hash route",
+      "url": "https://shop.az/#/reset/dGhpcyBpcyBhIHNlY3JldCB0b2tlbg==",
+      "expected": "https://shop.az/#/reset/[redacted]"
+    },
+    {
+      "name": "audit3 H2 padded base64 as a nameless query part after a hint",
+      "url": "https://shop.az/reset?dGhpcyBpcyBhIHNlY3JldCB0b2tlbg==",
+      "expected": "https://shop.az/reset?[redacted]"
+    },
+    {
+      "name": "audit3 H2 padded base64 as a nameless query part",
+      "url": "https://shop.az/p?dGhpcyBpcyBhIHNlY3JldCB0b2tlbg==&keep=1",
+      "expected": "https://shop.az/p?[redacted]&keep=1"
+    },
+    {
+      "name": "audit3 H2 empty values and stray equals signs are kept",
+      "url": "https://shop.az/login?returnUrl=&next=&a==&b&c=1",
+      "expected": "https://shop.az/login?returnUrl=&next=&a==&b&c=1"
+    },
+    {
+      "name": "audit3 M5 name=value in a path segment: card",
+      "url": "https://shop.az/x/t=4111111111111111/y",
+      "expected": "https://shop.az/x/[redacted]/y"
+    },
+    {
+      "name": "audit3 M5 name=value in a path segment: JWT",
+      "url": "https://shop.az/x/t=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz",
+      "expected": "https://shop.az/x/[redacted]"
+    },
+    {
+      "name": "audit3 M5 name=value in a path segment: phone",
+      "url": "https://shop.az/x/t=+994501234567",
+      "expected": "https://shop.az/x/[redacted]"
+    },
+    {
+      "name": "audit3 M5 encoded slash in a path segment",
+      "url": "https://shop.az/reset%2Fsk_live_51HabcDEF12345/x",
+      "expected": "https://shop.az/[redacted]/x"
+    },
+    {
+      "name": "audit3 M5 ordinary name=value segments are kept",
+      "url": "https://shop.az/filter/color=red/size=m/a%2Fb/price=10-20",
+      "expected": "https://shop.az/filter/color=red/size=m/a%2Fb/price=10-20"
+    },
+    {
+      "name": "audit3 M5 name=value segment under a hint",
+      "url": "https://shop.az/reset/t=Xk29LmQa/next=home",
+      "expected": "https://shop.az/reset/[redacted]/next=home"
+    },
+    {
+      "name": "audit3 M6 auth and callback",
+      "url": "https://shop.az/auth/callback/Xk29LmQa",
+      "expected": "https://shop.az/auth/callback/[redacted]"
+    },
+    {
+      "name": "audit3 M6 oauth with a uuid",
+      "url": "https://shop.az/oauth/3f2a1b0c-9d8e-4f6a-8b4c-9f8a7b6c5d4e",
+      "expected": "https://shop.az/oauth/[redacted]"
+    },
+    {
+      "name": "audit3 M6 session",
+      "url": "https://shop.az/session/9f8a7b6c5d4e3f2a",
+      "expected": "https://shop.az/session/[redacted]"
+    },
+    {
+      "name": "audit3 M6 join",
+      "url": "https://shop.az/join/Xk29LmQa",
+      "expected": "https://shop.az/join/[redacted]"
+    },
+    {
+      "name": "audit3 M6 2fa and mfa codes",
+      "url": "https://shop.az/2fa/123456/x/mfa/123456/x/2FA-verify/123456/x/setup-2fa/123456",
+      "expected": "https://shop.az/2fa/[redacted]/x/mfa/[redacted]/x/2FA-verify/[redacted]/x/setup-2fa/[redacted]"
+    },
+    {
+      "name": "audit3 M6 words after the new hints are kept",
+      "url": "https://shop.az/auth/login/x/join/us/x/callback/success/x/session/2026-keynote/x/oauth/authorize",
+      "expected": "https://shop.az/auth/login/x/join/us/x/callback/success/x/session/2026-keynote/x/oauth/authorize"
+    },
+    {
+      "name": "audit3 M6 lookalikes are not hints",
+      "url": "https://shop.az/author/JohnSmith2/x/oauth2/aB3dEf9/x/sessions/aB3dEf9/x/joined/aB3dEf9/x/2fast/123456",
+      "expected": "https://shop.az/author/JohnSmith2/x/oauth2/aB3dEf9/x/sessions/aB3dEf9/x/joined/aB3dEf9/x/2fast/123456"
+    },
+    {
+      "name": "audit3 M6 query after a new hint",
+      "url": "https://shop.az/auth/callback?state=Xk29LmQa&next=home",
+      "expected": "https://shop.az/auth/callback?state=[redacted]&next=home"
+    },
+    {
+      "name": "audit3 M7 order confirmation: order before confirm",
+      "url": "https://shop.az/order/confirm/2026112500123",
+      "expected": "https://shop.az/order/confirm/2026112500123"
+    },
+    {
+      "name": "audit3 M7 order confirmation: checkout before confirm",
+      "url": "https://shop.az/checkout/confirm/ORD-2026-000123",
+      "expected": "https://shop.az/checkout/confirm/ORD-2026-000123"
+    },
+    {
+      "name": "audit3 M7 order confirmation: confirmation page",
+      "url": "https://shop.az/confirmation/AZ-778899",
+      "expected": "https://shop.az/confirmation/AZ-778899"
+    },
+    {
+      "name": "audit3 M7 order confirmation: payment before confirm",
+      "url": "https://shop.az/payment/confirm/9f8a7b6c",
+      "expected": "https://shop.az/payment/confirm/[redacted]"
+    },
+    {
+      "name": "audit3 M7 order confirmation: order parameter",
+      "url": "https://shop.az/confirm?order=2026112500123",
+      "expected": "https://shop.az/confirm?order=2026112500123"
+    },
+    {
+      "name": "audit3 M7 order confirmation: order word after confirm",
+      "url": "https://shop.az/confirm/order/778899",
+      "expected": "https://shop.az/confirm/order/778899"
+    },
+    {
+      "name": "audit3 M7 order confirmation: order word in the same segment",
+      "url": "https://shop.az/order-confirmation/778899/x/confirm-payment/778899",
+      "expected": "https://shop.az/order-confirmation/778899/x/confirm-payment/[redacted]"
+    },
+    {
+      "name": "audit3 M7 order confirmation: Azerbaijani words",
+      "url": "https://shop.az/sifaris/tesdiq/778899/x/%C3%B6d%C9%99ni%C5%9F/t%C9%99sdiq/778899",
+      "expected": "https://shop.az/sifaris/tesdiq/778899/x/%C3%B6d%C9%99ni%C5%9F/t%C9%99sdiq/[redacted]"
+    },
+    {
+      "name": "audit3 M7 order confirmation: order parameters after confirm",
+      "url": "https://shop.az/confirm?booking_ref=AB12CD&id=778899&number=20261125&orderId=778899123&t=Xk29LmQa",
+      "expected": "https://shop.az/confirm?booking_ref=AB12CD&id=[redacted]&number=[redacted]&orderId=778899123&t=[redacted]"
+    },
+    {
+      "name": "audit3 M7 order confirmation: hash route",
+      "url": "https://shop.az/a#/confirm?orderId=20261125001&t=Xk29LmQa",
+      "expected": "https://shop.az/a#/confirm?orderId=20261125001&t=[redacted]"
+    },
+    {
+      "name": "audit3 M7 confirm token is still masked",
+      "url": "https://shop.az/confirm/Xk29LmQa",
+      "expected": "https://shop.az/confirm/[redacted]"
+    },
+    {
+      "name": "audit3 M7 confirm-email token is still masked",
+      "url": "https://shop.az/confirm-email/Xk29LmQa",
+      "expected": "https://shop.az/confirm-email/[redacted]"
+    },
+    {
+      "name": "audit3 M7 email-confirmation and tesdiq tokens are still masked",
+      "url": "https://shop.az/email-confirmation/Xk29LmQa/x/tesdiq/Xk29LmQa",
+      "expected": "https://shop.az/email-confirmation/[redacted]/x/tesdiq/[redacted]"
+    },
+    {
+      "name": "audit3 M7 JWT after an order confirmation is still masked",
+      "url": "https://shop.az/order/confirm/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz",
+      "expected": "https://shop.az/order/confirm/[redacted]"
+    },
+    {
+      "name": "audit3 M7 other hints next to an order word are still hints",
+      "url": "https://shop.az/order/verify/Xk29LmQa/x/checkout/reset/Xk29LmQa",
+      "expected": "https://shop.az/order/verify/[redacted]/x/checkout/reset/[redacted]"
+    },
+    {
+      "name": "audit3 L secret-shaped parameter name",
+      "url": "https://shop.az/p?eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz=1&keep=1&9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c=2",
+      "expected": "https://shop.az/p?[redacted]&keep=1&[redacted]"
+    },
+    {
+      "name": "audit3 L utm values: phone and card",
+      "url": "https://shop.az/p?utm_term=%2B994501234567&utm_content=4111111111111111&utm_campaign=black+friday+20261125&utm_source=fb",
+      "expected": "https://shop.az/p?utm_term=[redacted]&utm_content=[redacted]&utm_campaign=black+friday+20261125&utm_source=fb"
+    },
+    {
+      "name": "audit3 L utm value: card in form encoding",
+      "url": "https://shop.az/p?utm_term=4111+1111+1111+1111",
+      "expected": "https://shop.az/p?utm_term=[redacted]"
+    },
+    {
+      "name": "audit3 L utm value: phone inside a text",
+      "url": "https://shop.az/p?utm_term=call%20%2B994501234567%20now",
+      "expected": "https://shop.az/p?utm_term=call%20%5Bredacted%5D%20now"
+    },
+    {
+      "name": "audit3 L numeric click id is not a card",
+      "url": "https://shop.az/p?yclid=4111111111111111&gclid=4111111111111111",
+      "expected": "https://shop.az/p?yclid=4111111111111111&gclid=4111111111111111"
+    },
+    {
+      "name": "audit3 L sifrele is not sifre: path",
+      "url": "https://shop.az/sifreleme/Xk29LmQa/x/%C5%9Fifr%C9%99l%C9%99m%C9%99/Xk29LmQa/x/sifre/Xk29LmQa/x/sifresi/Xk29LmQa",
+      "expected": "https://shop.az/sifreleme/Xk29LmQa/x/%C5%9Fifr%C9%99l%C9%99m%C9%99/Xk29LmQa/x/sifre/[redacted]/x/sifresi/[redacted]"
+    },
+    {
+      "name": "audit3 L sifrele and secretary are not secret names: query",
+      "url": "https://shop.az/p?sifreleme=aes256gcm&secretary=AnnaSmith&secretariat=x1&sifre=x1&sifresi=x2&secret=x3&secrets=x4&keep=1",
+      "expected": "https://shop.az/p?sifreleme=aes256gcm&secretary=AnnaSmith&secretariat=x1&keep=1"
+    },
+    {
+      "name": "audit3 L fullwidth at sign in a query and a path",
+      "url": "https://shop.az/u/user\uff20shop.az?to=user\uff20shop.az&keep=1",
+      "expected": "https://shop.az/u/[redacted]?to=[redacted]&keep=1"
+    },
+    {
+      "name": "audit3 M7 confirmation page: tokens are still masked",
+      "url": "https://shop.az/confirmation/Xk29LmQa/x/confirmation/20261125/9f8a7b6c5d4e/x/confirmation/a/778899",
+      "expected": "https://shop.az/confirmation/[redacted]/x/confirmation/[redacted]/[redacted]/x/confirmation/a/778899"
+    },
+    {
+      "name": "audit3 M7 confirmation page: query",
+      "url": "https://shop.az/confirmation?order=778899&t=Xk29LmQa",
+      "expected": "https://shop.az/confirmation?order=778899&t=[redacted]"
+    },
+    {
+      "name": "audit4 N8 hex run with a trailing dot in a query value",
+      "url": "https://shop.az/a?k=a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7.&x=1",
+      "expected": "https://shop.az/a?k=[redacted]&x=1"
+    },
+    {
+      "name": "audit4 N8 hex run after a prefix in a query value",
+      "url": "https://shop.az/a?k=v1:a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7&t=1700000000.9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c",
+      "expected": "https://shop.az/a?k=[redacted]&t=[redacted]"
+    },
+    {
+      "name": "audit4 N8 hex run in a file name that is not a static file",
+      "url": "https://shop.az/a/a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7.json",
+      "expected": "https://shop.az/a/[redacted]"
+    },
+    {
+      "name": "audit4 N8 static file names with a hex hash are kept",
+      "url": "https://shop.az/img/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c.jpg/x/assets/app.a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7.js/x/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c_300x300.webp",
+      "expected": "https://shop.az/img/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c.jpg/x/assets/app.a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7.js/x/9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c_300x300.webp"
+    },
+    {
+      "name": "audit4 N8 hex run after a hint word in a long segment",
+      "url": "https://shop.az/reset-a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f79f8a7b6c5d4e3f2a1b0c9d8e",
+      "expected": "https://shop.az/[redacted]"
+    },
+    {
+      "name": "audit4 N8 hex run after a prefix in a path segment",
+      "url": "https://shop.az/dl/t-a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7/x/f_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c",
+      "expected": "https://shop.az/dl/[redacted]/x/[redacted]"
+    },
+    {
+      "name": "audit4 N8 long hint segment still gives a hint",
+      "url": "https://shop.az/reset-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz/a1b2c3d4?t=Zq7Lm2Xp9Rt4",
+      "expected": "https://shop.az/reset-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz/[redacted]?t=Zq7Lm2Xp9Rt4"
+    },
+    {
+      "name": "audit4 N8 long hint segment: query after it",
+      "url": "https://shop.az/reset-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz?t=Zq7Lm2Xp9Rt4&page=2",
+      "expected": "https://shop.az/reset-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz?t=[redacted]&page=2"
+    },
+    {
+      "name": "audit4 N8 long slug gives no hint",
+      "url": "https://shop.az/how-to-reset-your-password-in-ten-easy-steps-for-absolute-beginners-2026/a1b2c3d4?t=Zq7Lm2Xp9Rt4",
+      "expected": "https://shop.az/how-to-reset-your-password-in-ten-easy-steps-for-absolute-beginners-2026/a1b2c3d4?t=Zq7Lm2Xp9Rt4"
+    },
+    {
+      "name": "audit4 N8 undashed uuid inside a segment: kept without a hint",
+      "url": "https://shop.az/p/id-550e8400e29b41d4a716446655440000/x/reset/id-550e8400e29b41d4a716446655440000",
+      "expected": "https://shop.az/p/id-550e8400e29b41d4a716446655440000/x/reset/[redacted]"
+    },
+    {
+      "name": "audit4 N8 hex runs shorter than 32 are kept",
+      "url": "https://shop.az/commit/3f9a2b1c4d5e6f70/x?sha=9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4&v=1:3f9a2b1&id=9f8a7b6c5d4e3f2a-1b0c9d8e7f6a5b4c",
+      "expected": "https://shop.az/commit/3f9a2b1c4d5e6f70/x?sha=9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4&v=1:3f9a2b1&id=9f8a7b6c5d4e3f2a-1b0c9d8e7f6a5b4c"
+    },
+    {
+      "name": "audit4 N8 hex run in a matrix value and between encoded quotes",
+      "url": "https://shop.az/a;k=x.a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7/b?k=%229f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c%22",
+      "expected": "https://shop.az/a;k=[redacted]/b?k=[redacted]"
+    },
+    {
+      "name": "audit4 N8 hex run in a nameless query part",
+      "url": "https://shop.az/p?v1:a3f1c9d27b6e4f0891ab54cd32ef7a10c4d5e6f7&keep=1",
+      "expected": "https://shop.az/p?[redacted]&keep=1"
+    },
+    {
+      "name": "audit4 N2 padded base64 with one equals sign after a hint",
+      "url": "https://shop.az/reset?c2VjcmV0LXJlc2V0LTE=",
+      "expected": "https://shop.az/reset?[redacted]"
+    },
+    {
+      "name": "audit4 N2 padded base64 with one equals sign in a hash route",
+      "url": "https://shop.az/#/verify/c2VjcmV0LXJlc2V0LTE=",
+      "expected": "https://shop.az/#/verify/[redacted]"
+    },
+    {
+      "name": "audit4 N2 standard base64 with a slash and a plus after a hint",
+      "url": "https://shop.az/reset?YWJjZGVmZ2hpams+bG1ub3A/cXJz==",
+      "expected": "https://shop.az/reset?[redacted]"
+    },
+    {
+      "name": "audit4 N2 standard base64 without padding after a hint",
+      "url": "https://shop.az/verify?YWJjZGVmZ2hpams+bG1ub3A/cXJz&keep=1",
+      "expected": "https://shop.az/verify?[redacted]&keep=1"
+    },
+    {
+      "name": "audit4 N2 short padded tokens without a hint are kept",
+      "url": "https://shop.az/p?c2VjcmV0LXJlc2V0LTE=&YWJjZGVmZ2hpams+bG1ub3A/cXJz==",
+      "expected": "https://shop.az/p?c2VjcmV0LXJlc2V0LTE=&YWJjZGVmZ2hpams+bG1ub3A/cXJz=="
+    },
+    {
+      "name": "audit4 N2 empty values without a hint are kept",
+      "url": "https://shop.az/p?q=&debug=&x==&returnUrl=",
+      "expected": "https://shop.az/p?q=&debug=&x==&returnUrl="
+    },
+    {
+      "name": "audit4 N2 empty values after a hint are kept",
+      "url": "https://shop.az/reset?q=&debug=&returnUrl=&utm_source=&next=&redirect_uri=",
+      "expected": "https://shop.az/reset?q=&debug=&returnUrl=&utm_source=&next=&redirect_uri="
+    },
+    {
+      "name": "audit4 N2 secret-shaped name with an empty value",
+      "url": "https://shop.az/p?eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz=&keep=1&9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c=",
+      "expected": "https://shop.az/p?[redacted]&keep=1&[redacted]"
+    },
+    {
+      "name": "audit4 N3 hash route matrix value after a hint",
+      "url": "https://shop.az/#/reset;t=Zq7Lm2Xp9Rt4",
+      "expected": "https://shop.az/#/reset;t=[redacted]"
+    },
+    {
+      "name": "audit4 N3 hash route matrix value and more parameters",
+      "url": "https://shop.az/#/reset;t=Zq7Lm2Xp9Rt4&x=1",
+      "expected": "https://shop.az/#/reset;t=[redacted]&x=1"
+    },
+    {
+      "name": "audit4 N3 hash-bang route matrix value and a query",
+      "url": "https://shop.az/#!/reset;t=Zq7Lm2Xp9Rt4?y=Zq7Lm2Xp9Rt4",
+      "expected": "https://shop.az/#!/reset;t=[redacted]?y=[redacted]"
+    },
+    {
+      "name": "audit4 N3 hash route matrix values without a hint are kept",
+      "url": "https://shop.az/#/p;color=red;size=42/list;page=2",
+      "expected": "https://shop.az/#/p;color=red;size=42/list;page=2"
+    },
+    {
+      "name": "audit4 N3 hash route matrix segment then a parameter segment",
+      "url": "https://shop.az/#/a;x=1/access_token=Xk29LmQa",
+      "expected": "https://shop.az/#/a;x=1/"
+    },
+    {
+      "name": "audit4 N3 hash route matrix sensitive names are removed",
+      "url": "https://shop.az/#/p;jsessionid=AB12CD34EF56;keep=1",
+      "expected": "https://shop.az/#/p;keep=1"
+    },
+    {
+      "name": "audit4 N3 hash route parameter before a semicolon",
+      "url": "https://shop.az/#/a=1;b=2",
+      "expected": "https://shop.az/#/a=1;b=2"
+    },
+    {
+      "name": "audit4 N3 hash route matrix value two segments after a hint",
+      "url": "https://shop.az/#/verify/a;t=Zq7Lm2Xp9Rt4/b;n=123456",
+      "expected": "https://shop.az/#/verify/a;t=[redacted]/b;n=123456"
+    },
+    {
+      "name": "audit4 N4 token after an order confirmation",
+      "url": "https://shop.az/order/confirm/Zq7Lm2Xp9Rt4",
+      "expected": "https://shop.az/order/confirm/[redacted]"
+    },
+    {
+      "name": "audit4 N4 confirm-email under checkout",
+      "url": "https://shop.az/checkout/confirm-email/Zq7Lm2Xp9Rt4/x/checkout/confirm-email/482913",
+      "expected": "https://shop.az/checkout/confirm-email/[redacted]/x/checkout/confirm-email/[redacted]"
+    },
+    {
+      "name": "audit4 N4 payment confirmation code",
+      "url": "https://shop.az/payment/confirmation/879609",
+      "expected": "https://shop.az/payment/confirmation/[redacted]"
+    },
+    {
+      "name": "audit4 N4 payment confirmation: longer references are kept",
+      "url": "https://shop.az/payment/confirmation/2026112500123/x/payment/confirm/AZ-778899/x/payment-confirmation/123456789",
+      "expected": "https://shop.az/payment/confirmation/2026112500123/x/payment/confirm/AZ-778899/x/payment-confirmation/123456789"
+    },
+    {
+      "name": "audit4 N4 payment confirmation: Azerbaijani words",
+      "url": "https://shop.az/odenis/tesdiq/12345678/x/%C3%B6d%C9%99ni%C5%9F/t%C9%99sdiq/123456789",
+      "expected": "https://shop.az/odenis/tesdiq/[redacted]/x/%C3%B6d%C9%99ni%C5%9F/t%C9%99sdiq/123456789"
+    },
+    {
+      "name": "audit4 N4 order numbers after an order confirmation are kept",
+      "url": "https://shop.az/order/confirm/482913/x/booking/confirm/AZ-778899/details/x/checkout/confirmation/100045678",
+      "expected": "https://shop.az/order/confirm/482913/x/booking/confirm/AZ-778899/details/x/checkout/confirmation/100045678"
+    },
+    {
+      "name": "audit4 N4 query after an order confirmation",
+      "url": "https://shop.az/orders/confirm?t=Zq7Lm2Xp9Rt4&id=778899&ref=AZ-778899&number=Zq7Lm2Xp9Rt4",
+      "expected": "https://shop.az/orders/confirm?t=[redacted]&id=778899&ref=AZ-778899&number=[redacted]"
+    },
+    {
+      "name": "audit4 N4 id and ref after a plain confirm",
+      "url": "https://shop.az/confirm?id=Zq7Lm2Xp9Rt4&ref=Zq7Lm2Xp9Rt4",
+      "expected": "https://shop.az/confirm?id=[redacted]&ref=[redacted]"
+    },
+    {
+      "name": "audit4 N4 order parameters after a plain confirm",
+      "url": "https://shop.az/confirm?order_id=Zq7Lm2Xp9Rt4&orderId=778899&booking=AZ-778899&reference=778899",
+      "expected": "https://shop.az/confirm?order_id=[redacted]&orderId=778899&booking=AZ-778899&reference=[redacted]"
+    },
+    {
+      "name": "audit4 N4 order word in the confirm segment",
+      "url": "https://shop.az/order-confirmation/Zq7Lm2Xp9Rt4/x/confirm-order/Zq7Lm2Xp9Rt4/x/order-confirmation/AZ-778899",
+      "expected": "https://shop.az/order-confirmation/[redacted]/x/confirm-order/[redacted]/x/order-confirmation/AZ-778899"
+    },
+    {
+      "name": "audit4 N4 confirmation page query",
+      "url": "https://shop.az/confirmation?id=Zq7Lm2Xp9Rt4&ref=778899",
+      "expected": "https://shop.az/confirmation?id=[redacted]&ref=778899"
+    },
+    {
+      "name": "audit4 N4 matrix values after an order confirmation",
+      "url": "https://shop.az/order/confirm;id=Zq7Lm2Xp9Rt4;ref=778899/x",
+      "expected": "https://shop.az/order/confirm;id=[redacted];ref=778899/x"
+    },
+    {
+      "name": "audit4 N4 lower case reference and words after an order confirmation",
+      "url": "https://shop.az/order/confirm/az-778899/x/order/confirm/thank-you/x/checkout/confirm/step2",
+      "expected": "https://shop.az/order/confirm/[redacted]/x/order/confirm/thank-you/x/checkout/confirm/step2"
+    },
+    {
+      "name": "audit4 N4 order word after confirm",
+      "url": "https://shop.az/confirm/order/Zq7Lm2Xp9Rt4/x/confirm/order/778899",
+      "expected": "https://shop.az/confirm/order/[redacted]/x/confirm/order/778899"
+    }
+  ]
+}

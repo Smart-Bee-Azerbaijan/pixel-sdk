@@ -12,9 +12,13 @@ Pod::Spec.new do |s|
   s.platform     = :ios, '13.0'
   s.swift_version = '5.7'
   s.source       = { :git => 'https://github.com/Smart-Bee-Azerbaijan/pixel-sdk.git', :tag => "v#{s.version}" }
-  # ios/Core nativ nüvənin nüsxəsidir (mobile/sync-native.mjs).
+  # ios/Core is a copy of the native core (mobile/sync-native.mjs).
   s.source_files = 'ios/**/*.{swift,m}'
   s.resource_bundles = { 'SmartBeePixelPrivacy' => ['ios/Resources/PrivacyInfo.xcprivacy'] }
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
+  # For the advertising identifier (IDFA). AppTrackingTransparency exists only since iOS 14: it is weak-linked so
+  # that an app does not crash at launch on iOS 13 because of the missing framework (the code calls it under `#available`).
+  s.frameworks = 'AdSupport'
+  s.weak_frameworks = 'AppTrackingTransparency'
   s.dependency 'React-Core'
 end
