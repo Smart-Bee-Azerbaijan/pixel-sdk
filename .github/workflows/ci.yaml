@@ -85,7 +85,10 @@ jobs:
           flutter test
       - name: pub.dev package validation
         working-directory: mobile/flutter
-        run: flutter pub publish --dry-run
+        run: |
+          git status --short
+          git diff --stat
+          flutter pub publish --dry-run
       - name: Build an Android app that uses the plugin
         run: |
           flutter create --platforms=android --project-name pixel_probe "$RUNNER_TEMP/pixel_probe"
